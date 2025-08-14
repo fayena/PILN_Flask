@@ -1,90 +1,131 @@
 #!/bin/bash
+set -euo pipefail
 
-#Install Script for PILN
+# ---------- config ----------
+REPO_URL="https://github.com/fayena/PILN_Flash.git"
+REPO_BRANCH="main"              # change if needed
+APP_HOME="/home/pi/PILN"
+VENV_DIR="$APP_HOME/.venv"
+SERVICE_FILE="/lib/systemd/system/pilnfired.service"
+ENTRYPOINT="$APP_HOME/daemon/pilnfired.py"  # update if different
+THERMO_TYPE="S"                        # S, K, etc. Used as environment var
 
-#update pi
+# ---------- OS packages ----------
 sudo apt update
-sudo apt upgrade -y
-#make sure git and python3 dependencies are installed 
+sudo apt -y upgrade
+sudo apt -y install \
+  git sqlite3 ufw lighttpd \
+  python3 python3-venv python3-pip \
+  python3-jinja2 python3-psutil
 
-sudo apt install git
-sudo apt install -y python3-setuptools python3-pip
+# ---------- clone repo (idempotent) ----------
+if [ ! -d "$APP_HOME/.git" ]; then
+  git clone --branch "$REPO_BRANCH" "$REPO_URL" "$APP_HOME"
+else
+  cd "$APP_HOME"
+  git fetch origin "$REPO_BRANCH"
+  git checkout "$REPO_BRANCH"
+  git pull
+fi
 
+# ---------- create basic dirs ----------
+mkdir -p "$APP_HOME/log" "$APP_HOME/style/css" "$APP_HOME/style/js"
 
-#create directories
+# ---------- web assets (same as your script) ----------
+wget -q -N -P "$APP_HOME/style/js" https://cdn.datatables.net/1.10.25/js/jquery.dataTables.min.js
+wget -q -N -P "$APP_HOME/style/js" https://code.jquery.com/jquery-3.6.0.min.js
+wget -q -N -P "$APP_HOME/style/js" https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.0/chart.min.js
+wget -q -N -P "$APP_HOME/style/js" https://momentjs.com/downloads/moment.min.js
+wget -q -N -P "$APP_HOME/style/css" https://cdn.datatables.net/1.10.25/css/jquery.dataTables.min.css
 
-git clone --branch Off-Line-Charts https://github.com/fayena/PILN.git
+# ---------- lighttpd ----------
+sudo cp "$APP_HOME/lighttpd/lighttpd.conf" /etc/lighttpd/
+sudo ln -sf ../conf-available/10-cgi.conf /etc/lighttpd/conf-enabled/10-cgi.conf
+sudo service lighttpd restart
 
-#install needed softare
-
-sudo apt install sqlite3
-sudo apt install ufw
-sudo apt install lighttpd
-sudo apt install python3-jinja2
-sudo apt install python3-psutil
-
-
-echo "software installed"
-
-#setup firewall
+# ---------- firewall ----------
 sudo ufw allow ssh
 sudo ufw allow http
-echo "firewall setup"
 
-#setup web server (lighttpd)
+# ---------- permissions ----------
+sudo chown -R -L www-data:www-data "$APP_HOME/style"
+sudo chown pi:pi "$APP_HOME/app/pilnstat.json" || true
+sudo chown pi:pi "$APP_HOME/log"
+sudo chown -R www-data:www-data "$APP_HOME/db"
+sudo touch "$APP_HOME/app/data.json"
+sudo chown www-data:www-data "$APP_HOME/app/data.json"
 
-sudo cp /home/pi/PILN/lighttpd/lighttpd.conf /etc/lighttpd/
-cd /etc/lighttpd/conf-enabled
-sudo ln -s ../conf-available/10-cgi.conf .
-cd
-#create directories
+# ---------- enable SPI/I2C (non-interactive if raspi-config is present) ----------
+if command -v raspi-config >/dev/null 2>&1; then
+  sudo raspi-config nonint do_spi 0 || true
+  sudo raspi-config nonint do_i2c 0 || true
+else
+  # Fallback: ensure dtparams are present (Pi OS Bookworm uses /boot/firmware)
+  BOOTCFG="/boot/firmware/config.txt"
+  [ -f /boot/config.txt ] && BOOTCFG="/boot/config.txt"
+  sudo sed -i -e '/^dtparam=spi=on/!s|^#\?dtparam=spi=.*$||' "$BOOTCFG" || true
+  sudo sed -i -e '/^dtparam=i2c_arm=on/!s|^#\?dtparam=i2c_arm=.*$||' "$BOOTCFG" || true
+  grep -q '^dtparam=spi=on' "$BOOTCFG" || echo 'dtparam=spi=on' | sudo tee -a "$BOOTCFG"
+  grep -q '^dtparam=i2c_arm=on' "$BOOTCFG" || echo 'dtparam=i2c_arm=on' | sudo tee -a "$BOOTCFG"
+fi
 
-#git clone https://github.com/fayena/PILN.git
-sudo mkdir ./PILN/log ./PILN/style/css ./PILN/style/js
-echo "directories created"
+# Allow the 'pi' user access to SPI/GPIO/I2C devices when not running as root
+sudo usermod -aG spi,i2c,gpio pi
 
+# ---------- python venv ----------
+python3 -m venv "$VENV_DIR"
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip wheel setuptools
 
-#download needed files
-sudo wget -P /home/pi/PILN/style/js https://cdn.datatables.net/1.10.25/js/jquery.dataTables.min.js
-sudo wget -P /home/pi/PILN/style/js https://code.jquery.com/jquery-3.6.0.min.js
-sudo wget -P /home/pi/PILN/style/js https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.0/chart.min.js
-sudo wget -P /home/pi/PILN/style/js https://momentjs.com/downloads/moment.min.js
-sudo wget -P /home/pi/PILN/style/css https://cdn.datatables.net/1.10.25/css/jquery.dataTables.min.css
+# Use repo requirements if present, else install minimal set needed by the controller
+if [ -f "$APP_HOME/requirements.txt" ]; then
+  pip install -r "$APP_HOME/requirements.txt"
+else
+  pip install \
+    adafruit-blinka \
+    adafruit-circuitpython-max31856 \
+    RPi.GPIO \
+    psutil \
+    Jinja2
+fi
+deactivate
 
-#make sure permissions are correct
-sudo chown -R -L  www-data:www-data /home/pi/PILN/style
-sudo chown pi:pi /home/pi/PILN/app/pilnstat.json
-sudo chown pi:pi /home/pi/PILN/log
-sudo chown www-data:www-data -R /home/pi/PILN/db
-sudo touch /home/pi/PILN/app/data.json
-sudo chown www-data:www-data /home/pi/PILN/app/data.json
+# ---------- systemd service ----------
+# This rewrites the service to use the venv python and sets env vars.
+sudo tee "$SERVICE_FILE" >/dev/null <<EOF
+[Unit]
+Description=PiLN Kiln Firing Daemon
+After=network-online.target lighttpd.service
+Wants=network-online.target
 
-#restart webserver
-sudo service lighttpd restart
-echo "webserver setup"
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=$APP_HOME
+Environment=THERMOCOUPLE=$THERMO_TYPE
+# set SIMULATE_TC=1 to run without hardware (optional)
+# Environment=SIMULATE_TC=1
+ExecStart=$VENV_DIR/bin/python $ENTRYPOINT
+Restart=always
+RestartSec=3
 
-#enable raspberry pi interfaces
-sudo raspi-config #enable interfaces ic2 & spi
-lsmod | grep spi
-echo "interfaces enabled"
+# Access to SPI/I2C/GPIO without running as root (user added to groups above)
+AmbientCapabilities=CAP_SYS_TTY_CONFIG
 
-#install thermocouple amplifier
+[Install]
+WantedBy=multi-user.target
+EOF
 
-cd
-sudo pip3 install adafruit-circuitpython-max31856 --break-system-packages
-
-#install database
-
-sudo chown -R www-data:www-data /home/pi/PILN/db
-
-echo "database installed"
-
-#install pilnfired service
-sudo cp /home/pi/PILN/daemon/pilnfired.service /lib/systemd/system/
-
-sudo chmod 644 /lib/systemd/system/pilnfired.service
-sudo chmod +x /home/pi/PILN/daemon/pilnfired.py
-
+sudo chmod 644 "$SERVICE_FILE"
 sudo systemctl daemon-reload
+sudo systemctl enable pilnfired.service
+sudo systemctl restart pilnfired.service
+
+echo "---------------------------------------"
+echo "Install complete."
+echo "Service status:"
+systemctl --no-pager --full status pilnfired.service || true
 sudo systemctl enable pilnfired.service
 sudo systemctl start pilnfired.service
