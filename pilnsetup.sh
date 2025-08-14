@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # ---------- config ----------
-REPO_URL="https://github.com/fayena/PILN_Flash.git"
-REPO_BRANCH="main"              # change if needed
+REPO_URL="https://github.com/fayena/PILN.git"
 APP_HOME="/home/pi/PILN"
 VENV_DIR="$APP_HOME/.venv"
 SERVICE_FILE="/lib/systemd/system/pilnfired.service"
@@ -20,7 +19,7 @@ sudo apt -y install \
 
 # ---------- clone repo (idempotent) ----------
 if [ ! -d "$APP_HOME/.git" ]; then
-  git clone --branch "$REPO_BRANCH" "$REPO_URL" "$APP_HOME"
+ git clone --depth=1  "$REPO_URL" "$APP_HOME"
 else
   cd "$APP_HOME"
   git fetch origin "$REPO_BRANCH"
