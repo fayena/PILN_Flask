@@ -1,0 +1,32 @@
+2025-08-14 09:45:57,656 - kiln - INFO - === Run start ===
+2025-08-14 09:45:57,666 - kiln - INFO - TotalSeg: 1
+2025-08-14 09:45:57,675 - kiln - INFO - Entering segment RunID=209 Seg=1 Target=121 Rate=170 HoldMin=60 Window=30
+2025-08-14 09:46:28,332 - kiln - INFO - First pass: Target=121.00 Start=27.00 RampTmp=28.42 TmpDif=94.00 Steps=66 StepTmp=1.42 Window=30 StartSec=1755182788 EndSec=1755188378
+2025-08-14 09:46:28,332 - kiln - DEBUG - PID compute -> err=2.83 I=0.57 dIn=27.00 out=51.83
+2025-08-14 09:46:28,332 - kiln - DEBUG - RunID 209, Segment 1 (loop 1) - RunState:Ramp, ReadTmp:27.00, RampTmp:29.83, TargetTmp:121.00, Output:51.83, CycleOnSec:15.55, RemainTime:1:33:10
+2025-08-14 09:46:43,897 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:46:58,327 - kiln - DEBUG - PID compute -> err=4.25 I=1.42 dIn=0.00 out=86.42
+2025-08-14 09:46:58,327 - kiln - DEBUG - RunID 209, Segment 1 (loop 2) - RunState:Ramp, ReadTmp:27.00, RampTmp:31.25, TargetTmp:121.00, Output:86.42, CycleOnSec:25.93, RemainTime:1:32:40
+2025-08-14 09:47:24,264 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:47:28,318 - kiln - DEBUG - PID compute -> err=5.74 I=2.57 dIn=-0.08 out=100.00
+2025-08-14 09:47:28,319 - kiln - DEBUG - RunID 209, Segment 1 (loop 3) - RunState:Ramp, ReadTmp:26.92, RampTmp:32.67, TargetTmp:121.00, Output:100.00, CycleOnSec:30.00, RemainTime:1:32:10
+2025-08-14 09:47:58,332 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:47:58,655 - kiln - DEBUG - PID compute -> err=7.08 I=3.98 dIn=0.08 out=100.00
+2025-08-14 09:47:58,656 - kiln - DEBUG - RunID 209, Segment 1 (loop 4) - RunState:Ramp, ReadTmp:27.00, RampTmp:34.08, TargetTmp:121.00, Output:100.00, CycleOnSec:30.00, RemainTime:1:31:40
+2025-08-14 09:48:28,670 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:48:28,997 - kiln - DEBUG - PID compute -> err=8.50 I=5.68 dIn=0.00 out=100.00
+2025-08-14 09:48:28,997 - kiln - DEBUG - RunID 209, Segment 1 (loop 5) - RunState:Ramp, ReadTmp:27.00, RampTmp:35.50, TargetTmp:121.00, Output:100.00, CycleOnSec:30.00, RemainTime:1:31:10
+2025-08-14 09:48:59,012 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:48:59,339 - kiln - DEBUG - PID compute -> err=9.92 I=7.67 dIn=0.00 out=100.00
+2025-08-14 09:48:59,340 - kiln - DEBUG - RunID 209, Segment 1 (loop 6) - RunState:Ramp, ReadTmp:27.00, RampTmp:36.92, TargetTmp:121.00, Output:100.00, CycleOnSec:30.00, RemainTime:1:30:39
+2025-08-14 09:49:29,351 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:49:29,683 - kiln - DEBUG - PID compute -> err=11.25 I=9.92 dIn=0.09 out=100.00
+2025-08-14 09:49:29,684 - kiln - DEBUG - RunID 209, Segment 1 (loop 7) - RunState:Ramp, ReadTmp:27.09, RampTmp:38.33, TargetTmp:121.00, Output:100.00, CycleOnSec:30.00, RemainTime:1:30:09
+2025-08-14 09:49:59,696 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:50:00,028 - kiln - DEBUG - PID compute -> err=12.75 I=12.47 dIn=-0.09 out=100.00
+2025-08-14 09:50:00,029 - kiln - DEBUG - RunID 209, Segment 1 (loop 8) - RunState:Ramp, ReadTmp:27.00, RampTmp:39.75, TargetTmp:121.00, Output:100.00, CycleOnSec:30.00, RemainTime:1:29:38
+2025-08-14 09:50:30,044 - kiln - INFO - RunState end: Ramp
+2025-08-14 09:50:30,377 - kiln - DEBUG - PID compute -> err=14.08 I=15.28 dIn=0.09 out=100.00
+2025-08-14 09:50:30,377 - kiln - DEBUG - RunID 209, Segment 1 (loop 9) - RunState:Ramp, ReadTmp:27.09, RampTmp:41.17, TargetTmp:121.00, Output:100.00, CycleOnSec:30.00, RemainTime:1:29:08
+2025-08-14 09:51:00,392 - kiln - WARNING - Profile no longer in running state - exiting firing
+2025-08-14 09:51:00,393 - kiln - INFO - RunState end: Stopped

@@ -1,0 +1,39 @@
+ <h4 >
+ <form method="post" >
+  <input type="hidden" name="run_id" value="{{ run_id }}">
+  <button type="submit" name="page" value="savenew" class="btn-link">Save/Stage Profile</button>
+  
+  <button type="submit" name="page" value="" class="btn-link">Cancel</button>
+ </h4>
+
+ <h2 >Enter Profile Settings</h2>
+<h4 >Schedule (Format MUST be 2021-08-19 17:18:12): </h4>
+ <input style="border: none;border-bottom: 2px solid blue;" type="text" name="schedule" size="25" >
+
+ <h4 >Notes: </h4>
+ <input style="border: none;border-bottom: 2px solid blue;" type="text" name="notes" size="60" >
+
+ <h4 >PID Settings: </h4>&nbsp;&nbsp;
+ <h5 >Proportional: </h5><input style="border: none;border-bottom: 2px solid blue;" type="text" name="Kp" size="4" >
+ <h5 >Integral: </h5><input style="border: none;border-bottom: 2px solid blue;" type="text" name="Ki" size="4" >
+ <h5 >Derivative: </h5><input style="border: none;border-bottom: 2px solid blue;" type="text" name="Kd" size="4" ><br><br>
+ <table >
+ <tr>
+  <th>Segment</th>
+  <th>Target &deg;C</th>
+  <th>Rate(&deg;C/hr)</th>
+  <th>Hold Minutes</th>
+  <th>Interval Seconds</th>
+ </tr>
+ {% for segment in segments %}
+ <tr>
+  <td>{{ segment }}</td>
+  <td><input  type="text" name="set_temp{{ segment }}" size="4" ></td>
+  <td><input  type="text" name="rate{{ segment }}" size="4" ></td>
+  <td><input  type="text" name="hold_min{{ segment }}" size="4" ></td>
+  <td><input  type="text" name="int_sec{{ segment }}" size="4" ></td>
+ </tr>
+ {% endfor %}
+ </table>
+ </form>
+ <br>
