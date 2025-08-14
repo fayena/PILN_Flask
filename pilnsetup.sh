@@ -19,7 +19,7 @@ sudo apt -y install \
 
 # ---------- clone repo (idempotent) ----------
 if [ ! -d "$APP_HOME/.git" ]; then
- git clone --depth=1  "$REPO_URL" "$APP_HOME"
+ git clone --depth=1 https://github.com/fayena/PILN_Flask.git
 else
   cd "$APP_HOME"
   git fetch origin "$REPO_BRANCH"
