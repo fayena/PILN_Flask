@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ---------- config ----------
-REPO_URL="https://github.com/fayena/PILN.git"
+REPO_URL="https://github.com/fayena/PILN_Flask.git"
 APP_HOME="/home/pi/PILN"
 VENV_DIR="$APP_HOME/.venv"
 SERVICE_FILE="/lib/systemd/system/pilnfired.service"
@@ -19,7 +19,7 @@ sudo apt -y install \
 
 # ---------- clone repo (idempotent) ----------
 if [ ! -d "$APP_HOME/.git" ]; then
- git clone --depth=1 https://github.com/fayena/PILN_Flask.git
+ git clone --depth=1 "$REPO_URL" "$APP_HOME"
 else
   cd "$APP_HOME"
   git fetch origin "$REPO_BRANCH"
