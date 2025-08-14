@@ -120,7 +120,7 @@ Stuff to get it to work:
 - Run Install script
 From the terminal     
              
-```wget https://raw.githubusercontent.com/fayena/PILN/Off-Line-Charts/pilnsetup.sh```
+```wget https://raw.githubusercontent.com/fayena/PILN_Flash/main/pilnsetup.sh```
 
 ```sudo chmod +x pilnsetup.sh```
 
