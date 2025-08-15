@@ -8,11 +8,11 @@ STAT_FILE = os.path.join(APP_DIR, "app", "pilnstat.json")
 
 app = Flask(__name__)
 
-@app.route("/health")
+@app.route("/api/health")
 def health():
     return jsonify({"ok": True})
 
-@app.route("/status")
+@app.route("/api/status")
 def status():
     try:
         with open(STAT_FILE) as f:
