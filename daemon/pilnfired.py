@@ -42,12 +42,16 @@ SQLDB = '/home/pi/PILN/db/PiLN.sqlite3'
 HEAT_PINS = (5, 6)          # Same as original
 MAX_TEMP_C = 1330.0           # sanity bound (like original guard)
 MIN_VALID_TEMP_C = 0.1
-DEBUG_SIM = False             # set True to simulate heating (like original Debug mode)
+DEBUG_SIM = True            # set True to simulate heating (like original Debug mode)
+AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
+AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
+AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
 AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
 AUTOTUNE_NOISE_BAND = 2.0     # deg C around setpoint for relay toggling
 AUTOTUNE_MAX_SECONDS = 90 * 60
 AUTOTUNE_MIN_HALF_CYCLES = 6  # ~3 cycles recommended
 THERMOCOUPLE = "S"
+
 
 SIMULATE_TC = os.getenv("SIMULATE_TC", "false").strip().lower() in ("1","true","yes","on")
 
@@ -400,6 +404,7 @@ class KilnController:
     # ---- temperature read with debug sim ----
     def read_temp(self) -> Tuple[float, float]:
         if DEBUG_SIM:
+            print(self.sim_temp)
             return self.sim_temp, 25.0
         else:
             return self.tc_reader.read_temperature()
@@ -516,9 +521,6 @@ class KilnController:
 
                 # fresh reading
                 if DEBUG_SIM:
-                    # crude sim: drift toward target by prior output
-                    pass
-                else:
                     try:
                         read_tmp, int_tmp = self.read_temp()
                     except ThermocoupleError:
