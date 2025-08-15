@@ -9,41 +9,32 @@
   <script type="text/javascript" src="../style/js/jquery-3.6.0.min.js"></script>
    <script type="text/javascript" src="../style/js/jquery.dataTables.min.js"></script>
   <script>
-    function loadProcStat(){
-      $.getJSON("pilnstat.json",
-        function(data1) {
-          $.ajax({
-            mimeType: 'application/json; charset=iso-8859-1',  
-            dataType: "json",
-            url: 'check.cgi',
-            success: function (data2) {
-               if (data2 == "0"){
-                $('#statusupd1').html('WARNING: Firing process daemon is DOWN' );
-                $('#statusupd2').html('&nbsp;' );
-              } else {
-                if (data1.run_profile === 'none'){
-                  $('#statusupd1').html('Daemon: IDLE');
-                  $('#statusupd2').html('<div class="temp">Temp: ' + data1.readtemp + '&deg;C</div>');
-                } else {
-                  $('#statusupd1').html('Daemon: ACTIVE, Run ID: ' + data1.run_profile + ', '+
-                                        'Seg' + data1.run_segment + ', ' +
-                                        'Stat: ' + data1.status );
-                  $('#statusupd2').html('<div class="temp">Temp: ' + data1.readtemp + '&deg;C, </div>' +
-                                        'Ramp: ' + data1.ramptemp + '&deg;C, ' +
-                                        'Target: ' + data1.targettemp + '&deg;C, ' +
-                                        'SegTime: ' + data1.segtime);
-                }
-              }
-          }
-          });
-      });
-  
-    setTimeout(loadProcStat,5000);
+function loadProcStat(){
+  $.getJSON("/api/status", function(data) {
+    const running = !!(data.daemon && data.daemon.running);
+    if (!running) {
+      $('#statusupd1').text('WARNING: Firing process daemon is DOWN');
+      $('#statusupd2').html('&nbsp;');
+    } else {
+      if (data.run_profile === 'none') {
+        $('#statusupd1').text('Daemon: IDLE');
+        $('#statusupd2').html('<div class="temp">Temp: ' + data.readtemp + '&deg;C</div>');
+      } else {
+        $('#statusupd1').html('Daemon: ACTIVE, Run ID: ' + data.run_profile + ', ' +
+                              'Seg ' + data.run_segment + ', ' +
+                              'Stat: ' + data.status);
+        $('#statusupd2').html('<div class="temp">Temp: ' + data.readtemp + '&deg;C, </div>' +
+                              'Ramp: ' + data.ramptemp + '&deg;C, ' +
+                              'Target: ' + data.targettemp + '&deg;C, ' +
+                              'SegTime: ' + data.segtime);
+      }
     }
-  
-    $(document).ready(function(){
-      loadProcStat();
-    });
+    setTimeout(loadProcStat, 5000);
+  });
+}
+
+$(document).ready(loadProcStat);
+
   
 </script>
 

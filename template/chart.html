@@ -1,157 +1,71 @@
- <meta http-equiv="content-type" content="text/html; charset=UTF-8">
-    <!--Load the AJAX API-->
-     <!--<script src="../style/js/moment.min.js"></script>-->
-    <script src="../style/js/chart.min.js"></script>
-    <!--<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.27.0/moment.min.js"></script>-->
-    <!--<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.3/Chart.min.js"></script>-->
-    <!--<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>-->  
-   <canvas id="myChart"></canvas>
-
+<canvas id="myChart"></canvas>
+<script src="../style/js/chart.min.js"></script>
 <script>
+let myChart, lastIso=null;
+const run_id = "{{ run_id }}";          // keep your template var
+const POLL_MS = 30000, MAX_POINTS=5000; // optional cap
 
-
-	
-window.onload =  chartLoad();
-function chartLoad() {
-	   if(window.myChart instanceof Chart)
-          {
-        window.myChart.destroy();
-           }
-      
-       var run_id = "{{ run_id }}";
-            $.ajax({
-              mimeType: 'application/json; charset=iso-8859-1',
-              url:  'data.cgi',
-              data: JSON.stringify( run_id ),
-              contentType: "application/json",
-              dataType: 'json',
-              method: 'POST',
-              async: false,
-               success: function () {
-              $.ajax({
-                   mimeType: 'application/json; charset=iso-8859-1',  
-                   dataType: "json",
-                   url: 'data.json',
-                   success: function (data) {
-                        var date=[];
-                        var seg=[];
-                        var pid=[];
-                        var set=[];
-                        var temp=[];
-                        //var i;
-                        date=data['dt'];
-                        seg=data['segment'];
-                        pid=data['pid_output'];
-                        temp=data['temp'];
-                        set=data['set_temp'];
-                        
-                        var ctx = document.getElementById('myChart').getContext('2d');
-                        window.myChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: //labels for x-axis
-                                date
-             
-                            ,
-                            datasets: [{  //all the data from database
-                                label: 'Temperature',
-                                yAxisID: "y1",
-                                fill: false,
-                                borderColor: '#ff8000', 
-                                data: temp,
-                                
-                                },{
-                                label: 'Target Temperature',
-                                yAxisID: "y1",
-                                borderColor: '#ff0000', 
-                                fill: false,
-                                data: 
-                                    set,
-                                },{
-                                label: 'PID Output',
-                                yAxisID: "y1",
-                                borderColor: '#33cc33', 
-                                backgroundColor: '#33cc33',
-                                type: 'bar',
-                                data: pid,
-                                },{
-                                label: 'Segment',
-                                fill: false,
-                                borderColor: '#0033cc', 
-                                yAxisID: "y2",
-                                data: seg
-                                }
-                              ]
-                              },
-                        options: {
-							 interaction: {
-								mode: 'nearest'
-							},
-                        responsive: true,
-                        maintainAspectRatio: true,
-                         title: {
-                            display: true,
-                            text: 'Firing Chart for Profile {{ run_id }}',
-                            fontSize: 20
-                          },
-                        elements: {
-                                       point:{
-                                           radius: 0
-                                        }
-                                    },
-                        scales: {
-                             y1: {
-                                            type: "linear", // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
-                                            display: true,
-                                            position: "left",
-                                           
-                                            title: {
-                                                display: true,
-                                                text: 'Temperature'
-                                                },
-                                            
-                                        },
-                                y2: {
-                                            type: "linear", // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
-                                            display: true,
-                                            position: "right",
-                                            title: {
-                                                display: true,
-                                                text: 'Segments'
-                                                },
-                                            // grid line settings
-                                            grid: {
-                                                drawOnChartArea: false, // only want the grid lines for one axis to show up
-                                            },
-                                            ticks: {
-                                               stepSize: 1
-                                            },
-                                        
-                                        },
-                             
-                            }
-                        }
-             
-                    }
-                    );
-                    
-                    },
-                    error: function() {
-                      console.log("error");
-                      console.trace();
-                    }
-                });
-                
-               },
-                
-                           
-
-      
-            });
-
-
+async function fetchDelta(since=null){
+  const res = await fetch('/api/data',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ run_id, since })
+  });
+  if(!res.ok) throw new Error('fetch failed');
+  return res.json();
 }
 
-setInterval(chartLoad,30000);
+function buildChart(d){
+  const ctx = document.getElementById('myChart').getContext('2d');
+  myChart = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels:d.dt_label,
+      datasets:[
+        {label:'Temperature', yAxisID:'y1', fill:false, borderColor:'#ff8000', data:d.temp},
+        {label:'Target Temperature', yAxisID:'y1', fill:false, borderColor:'#ff0000', data:d.set_temp},
+        {label:'PID Output', yAxisID:'y1', type:'bar', borderColor:'#33cc33', backgroundColor:'#33cc33', data:d.pid_output},
+        {label:'Segment', yAxisID:'y2', fill:false, borderColor:'#0033cc', data:d.segment},
+      ]
+    },
+    options:{
+      interaction:{mode:'nearest'},
+      elements:{point:{radius:0}},
+      animation:{duration:0},
+      scales:{
+        y1:{type:'linear', position:'left', title:{display:true,text:'Temperature'}},
+        y2:{type:'linear', position:'right', grid:{drawOnChartArea:false}, ticks:{stepSize:1}, title:{display:true,text:'Segments'}}
+      }
+    }
+  });
+}
 
+function appendDelta(d){
+  if(!d || !d.dt_label || d.dt_label.length===0) return;
+  myChart.data.labels.push(...d.dt_label);
+  myChart.data.datasets[0].data.push(...d.temp);
+  myChart.data.datasets[1].data.push(...d.set_temp);
+  myChart.data.datasets[2].data.push(...d.pid_output);
+  myChart.data.datasets[3].data.push(...d.segment);
+
+  if(myChart.data.labels.length>MAX_POINTS){
+    const cut=myChart.data.labels.length-MAX_POINTS;
+    myChart.data.labels.splice(0,cut);
+    for(const ds of myChart.data.datasets) ds.data.splice(0,cut);
+  }
+  myChart.update('none');
+}
+
+(async function init(){
+  const initial = await fetchDelta(null);   // full load once
+  buildChart(initial);
+  lastIso = initial.last_iso || null;
+  setInterval(async ()=>{
+    try{
+      const d = await fetchDelta(lastIso);
+      appendDelta(d);
+      if(d.last_iso) lastIso = d.last_iso;
+    }catch(e){ console.error(e); }
+  }, POLL_MS);
+})();
 </script>
