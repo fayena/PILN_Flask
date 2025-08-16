@@ -20,7 +20,6 @@ import math
 import logging
 import sqlite3
 import sys
-import json
 from typing import Optional, Tuple, List, Dict
 
 import RPi.GPIO as GPIO
@@ -33,7 +32,6 @@ import adafruit_max31856
 # Hardcoded paths (kept the same)
 # -------------------
 AppDir = '/home/pi/PILN'
-StatFile = '/home/pi/PILN/app/pilnstat.json'
 SQLDB = '/home/pi/PILN/db/PiLN.sqlite3'
 
 # -------------------
@@ -43,9 +41,6 @@ HEAT_PINS = (5, 6)          # Same as original
 MAX_TEMP_C = 1330.0           # sanity bound (like original guard)
 MIN_VALID_TEMP_C = 0.1
 DEBUG_SIM = True            # set True to simulate heating (like original Debug mode)
-AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
-AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
-AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
 AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
 AUTOTUNE_NOISE_BAND = 2.0     # deg C around setpoint for relay toggling
 AUTOTUNE_MAX_SECONDS = 90 * 60
@@ -409,21 +404,11 @@ class KilnController:
         else:
             return self.tc_reader.read_temperature()
 
-    # ---- status JSON (same format as original) ----
+     # ---- status writer (disabled; UI reads DB via /api/status) ----
     def write_status(self, readtemp, run_id, seg, ramptemp, targettemp, status, segtime):
-        os.makedirs(os.path.dirname(StatFile), exist_ok=True)
-        payload = {
-            "proc_update_utime": str(int(time.time())),
-            "readtemp": str(int(readtemp)) if not math.isnan(readtemp) else "0",
-            "run_profile": str(run_id) if run_id is not None else "none",
-            "run_segment": str(seg) if seg is not None else "n/a",
-            "ramptemp": str(int(ramptemp)) if ramptemp is not None else "n/a",
-            "targettemp": str(int(targettemp)) if targettemp is not None else "n/a",
-            "status": str(status),
-            "segtime": str(segtime),
-        }
-        with open(StatFile, "w") as f:
-            json.dump(payload, f, indent=2)
+        # Intentionally no-op: status is derived from the DB by /api/status
+        # Keeping the method avoids refactors at call sites.
+        return
 
     # ---- DB helpers (same schema assumptions) ----
     def set_profile_start(self, run_id: int):
