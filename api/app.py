@@ -3,7 +3,7 @@ from flask import Flask, jsonify, request, g
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import subprocess
 try:
@@ -42,16 +42,31 @@ def health():
 
 @app.route("/api/status")
 def status():
-    resp = {"daemon": {"running": daemon_running()}}
     try:
-        with open(STAT_FILE) as f:
-            data = json.load(f)
-        resp.update(data)  # preserves existing top-level keys (run_profile, readtemp, etc.)
-        return jsonify(resp)
-    except FileNotFoundError:
-        resp["error"] = "status file not found"
-        # Keep your original 404 for compatibility
-        return jsonify(resp), 404
+        running = daemon_running()  # you already have this function
+        payload = status_from_db()
+        if not running:
+            payload["status"] = "down"
+            payload["run_profile"] = "none"
+            payload["run_segment"] = "n/a"
+        resp = jsonify({"daemon": {"running": running}, **payload})
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+        return resp, 200
+    except Exception as e:
+        app.logger.exception("GET /api/status failed")
+        return jsonify({
+            "daemon": {"running": False},
+            "run_profile": "none",
+            "run_segment": "n/a",
+            "status": "down",
+            "readtemp": "n/a",
+            "ramptemp": "n/a",
+            "targettemp": "n/a",
+            "segtime": "0:00:00",
+            "error": str(e)
+        }), 200
+
+
 # -------- NEW: incremental data endpoint --------
 @app.post("/api/data")
 def data_delta():
@@ -115,3 +130,178 @@ def daemon_running() -> bool:
         ["pgrep", "-f", target],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     ).returncode == 0
+    
+def _normalize_iso(s):
+    if s is None: return ""
+    s = str(s).strip().replace("T", " ")
+    if "." in s: s = s.split(".", 1)[0]
+    return s
+
+def _parse_iso(s):
+    return datetime.strptime(_normalize_iso(s), "%Y-%m-%d %H:%M:%S")
+
+def _fmt_hhmmss(delta: timedelta) -> str:
+    total = int(delta.total_seconds())
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}"
+
+def _get_running_run_id(db):
+    """
+    Prefer the 'running' profile whose firing has the most recent sample.
+    Avoids relying on profiles.start_time (may not exist).
+    """
+    try:
+        row = db.execute(
+            """
+            SELECT p.run_id
+              FROM profiles p
+             WHERE LOWER(p.state) = 'running'
+             ORDER BY COALESCE( (SELECT MAX(f.dt) FROM firing f WHERE f.run_id = p.run_id), 0 ) DESC
+             LIMIT 1
+            """
+        ).fetchone()
+        return str(row["run_id"]) if row and row["run_id"] is not None else None
+    except sqlite3.OperationalError:
+        # profiles table might not exist yet
+        return None
+
+
+def status_from_db():
+    try:
+        db = get_db()
+
+        running_run_id = _get_running_run_id(db)
+
+        def latest_for(run_id):
+            return db.execute(
+                """SELECT run_id, dt, segment, set_temp, temp
+                     FROM firing
+                    WHERE run_id = ?
+                    ORDER BY dt DESC
+                    LIMIT 1""",
+                (run_id,)
+            ).fetchone()
+
+        def last_overall():
+            return db.execute(
+                """SELECT run_id, dt, segment, set_temp, temp
+                     FROM firing
+                    ORDER BY dt DESC
+                    LIMIT 1"""
+            ).fetchone()
+
+        def target_temp(run_id, segment):
+            try:
+                r = db.execute(
+                    """SELECT set_temp FROM segments
+                       WHERE run_id = ? AND segment = ?
+                       LIMIT 1""",
+                    (run_id, segment)
+                ).fetchone()
+                return None if not r or r["set_temp"] is None else float(r["set_temp"])
+            except sqlite3.OperationalError:
+                return None
+
+        # ACTIVE (profiles says Running)
+        if running_run_id:
+            last = latest_for(running_run_id)
+            if not last:
+                return {
+                    "run_profile": running_run_id,
+                    "run_segment": "n/a",
+                    "status": "active",
+                    "readtemp": "n/a",
+                    "ramptemp": "n/a",
+                    "targettemp": "n/a",
+                    "segtime": "0:00:00",
+                }
+
+            run_id  = str(last["run_id"])
+            seg     = int(last["segment"]) if last["segment"] is not None else 0
+            temp    = float(last["temp"]) if last["temp"] is not None else None
+            set_tmp = float(last["set_temp"]) if last["set_temp"] is not None else None
+
+            # segtime
+            segtime = "0:00:00"
+            try:
+                last_dt = _parse_iso(last["dt"])
+                r = db.execute(
+                    """SELECT MIN(dt) AS dt FROM firing
+                       WHERE run_id = ? AND segment = ?""",
+                    (run_id, seg)
+                ).fetchone()
+                if r and r["dt"]:
+                    seg_start = _parse_iso(r["dt"])
+                    segtime = _fmt_hhmmss(max(timedelta(0), last_dt - seg_start))
+            except Exception:
+                pass
+
+            # ramp °C/min over last few points
+            ramptemp = "n/a"
+            try:
+                pts = db.execute(
+                    """SELECT dt, temp FROM firing
+                       WHERE run_id = ?
+                       ORDER BY dt DESC LIMIT 6""",
+                    (run_id,)
+                ).fetchall()
+                if len(pts) >= 2:
+                    t0 = _parse_iso(pts[0]["dt"])
+                    tn = _parse_iso(pts[-1]["dt"])
+                    mins = (t0 - tn).total_seconds() / 60.0
+                    if mins > 0:
+                        ramptemp = f"{(float(pts[0]['temp']) - float(pts[-1]['temp']))/mins:.1f}"
+            except Exception:
+                pass
+
+            tgt = target_temp(run_id, seg)
+
+            return {
+                "run_profile": run_id,
+                "run_segment": str(seg) if seg else "0",
+                "status": "active",
+                "readtemp":   f"{temp:.0f}"     if temp    is not None else "n/a",
+                "ramptemp":   f"{set_tmp:.0f}"  if set_tmp is not None else "n/a",  # same meaning as before
+                "targettemp": f"{tgt:.0f}"      if tgt     is not None else "n/a",
+                "segtime": segtime,
+            }
+
+        # IDLE — show last measured temp if any
+        last_any = last_overall()
+        if last_any and last_any["temp"] is not None:
+            return {
+                "run_profile": "none",
+                "run_segment": "n/a",
+                "status": "idle",
+                "readtemp":   f"{float(last_any['temp']):.0f}",
+                "ramptemp":   "n/a",
+                "targettemp": "n/a",
+                "segtime": "0:00:00",
+            }
+
+        # No data at all
+        return {
+            "run_profile": "none",
+            "run_segment": "n/a",
+            "status": "idle",
+            "readtemp": "n/a",
+            "ramptemp": "n/a",
+            "targettemp": "n/a",
+            "segtime": "0:00:00",
+        }
+
+    except Exception as e:
+        # Never crash
+        app.logger.exception("status_from_db failed")
+        return {
+            "run_profile": "none",
+            "run_segment": "n/a",
+            "status": "idle",
+            "readtemp": "n/a",
+            "ramptemp": "n/a",
+            "targettemp": "n/a",
+            "segtime": "0:00:00",
+            "_error": str(e),
+        }
+
