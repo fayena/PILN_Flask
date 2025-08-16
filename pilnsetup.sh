@@ -14,7 +14,7 @@ THERMO_TYPE="S"                        # S, K, etc. Used as environment var
 sudo apt update
 sudo apt -y upgrade
 sudo apt -y install \
-  git sqlite3 ufw lighttpd \
+  git sqlite3 ufw nginx \
   python3 python3-venv python3-pip \
   python3-jinja2 python3-psutil
 
@@ -38,21 +38,49 @@ wget -q -N -P "$APP_HOME/style/js" https://cdnjs.cloudflare.com/ajax/libs/Chart.
 wget -q -N -P "$APP_HOME/style/js" https://momentjs.com/downloads/moment.min.js
 wget -q -N -P "$APP_HOME/style/css" https://cdn.datatables.net/1.10.25/css/jquery.dataTables.min.css
 
-# ---------- lighttpd ----------
-sudo cp "$APP_HOME/lighttpd/lighttpd.conf" /etc/lighttpd/
-sudo ln -sf ../conf-available/10-cgi.conf /etc/lighttpd/conf-enabled/10-cgi.conf
-sudo lighttpd-enable-mod proxy || true
-sudo tee /etc/lighttpd/conf-available/50-piln-proxy.conf >/dev/null <<'EOF'
-server.modules += ( "mod_proxy" )
-proxy.server = (
-  "/api" => ((
-    "host" => "127.0.0.1",
-    "port" => 5000
-  ))
-)
-EOF
-sudo ln -sf ../conf-available/50-piln-proxy.conf /etc/lighttpd/conf-enabled/50-piln-proxy.conf
-sudo service lighttpd restart
+# ---------- nginx ----------
+sudo tee /etc/nginx/sites-available/piln >/dev/null <<'NGINX'
+server {
+    listen 80;
+    server_name _;
+
+    # your project root; so /style maps to /home/pi/PILN/style, /images -> .../images
+    root /home/pi/PILN;
+
+    # serve static directly
+    location ^~ /style/  { try_files $uri =404; }
+    location ^~ /images/ { try_files $uri =404; }
+    location = /favicon.ico { try_files $uri =404; }
+
+    # everything else falls back to Flask on :5000
+    location / {
+        try_files $uri $uri/ @flask;
+    }
+
+    location @flask {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_read_timeout 90s;
+    }
+
+    # (optional) longer cache for static
+    location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg)$ {
+        try_files $uri =404;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public";
+    }
+}
+NGINX
+
+sudo ln -sf /etc/nginx/sites-available/piln /etc/nginx/sites-enabled/piln
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+
 
 # ---------- firewall ----------
 sudo ufw allow ssh
@@ -113,7 +141,7 @@ deactivate
 sudo tee "$SERVICE_FILE" >/dev/null <<EOF
 [Unit]
 Description=PiLN Kiln Firing Daemon
-After=network-online.target lighttpd.service
+After=network-online.target nginx.service
 Wants=network-online.target
 
 [Service]

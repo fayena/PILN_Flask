@@ -1,105 +1,139 @@
+/* ====== PILN Color System (darker) ======
+   Ink (text):           #1f2328
+   Warm paper (page):    #f2eee9
+   Burnt ember (primary):#cc5400
+   Burnt ember hover:    #a94400
+   Deep brick (accents): #8f2f20
+   Deep brick hover:     #762617
+   Steel (borders):      #b7bfc8
+   Ash (rows/bg):        #eceff1
+================================================ */
+
+:root{
+  --ink: #1f2328;
+  --bg: #f2eee9;
+  --ember: #cc5400;
+  --ember-hover: #a94400;
+  --brick: #8f2f20;
+  --brick-hover: #762617;
+  --steel: #b7bfc8;
+  --ash: #eceff1;
+
+  /* unified button tokens */
+  --btn-bg: var(--ember);
+  --btn-border: var(--ember);
+  --btn-hover-bg: var(--ember-hover);
+  --btn-hover-border: var(--ember-hover);
+  --btn-text: #ffffff;
+}
+
+/* ========== Base ========== */
 body {
   font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
-  font-size:16px;
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--bg);
+  margin: 0;
 }
-.body {
-margin-left:auto;
-margin-right:auto;
-max-width: 1000px;
-}
-h2 {
-  font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
-  font-weight:bold;
-  font-size:28px;
-}
+.body { margin: 0 auto; max-width: 1000px; padding: 0 16px 24px; }
+h1,h2,h3 { margin: 0 0 12px 0; }
+h2 { font-weight: bold; font-size: 28px; }
+h3 { font-weight: bold; font-size: 18px; margin: 1px; padding: 2px; }
+h5 { display: inline; }
 
-h3 {
-  font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
-  font-weight:bold;
-  font-size:18px;
-  margin:1px;
-  padding:2px;
-}
-h5 {
-display:inline;
-}
+a { color: var(--ember); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ========== Logo + Status ========== */
+.logo { width: clamp(120px, 22vw, 260px); margin: 8px auto; padding: 2px 0; line-height: 0; }
+.logo_img, .logo img { display: block; width: 100%; height: auto; object-fit: contain; }
+
+.status { padding: 8px 15px 0; }
+#statusupd1, #statusupd2 { font-weight: bold; font-size: 1em; }
+.temp { font-size: 3em; color: var(--ember-hover); }
+
+/* ========== Tables ========== */
 table {
-  font-size:1em;
+  font-size: 1em;
   font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
   border-collapse: collapse;
-  border-spacing: 4;
-  margin-bottom: 0px;
-  overflow: scroll;
+  margin-bottom: 0;
+}
+td, th { border: 1px solid var(--steel); padding: 6px 8px; vertical-align: top; }
+th { background-color: var(--brick); color: #fff; padding-top: 6px; padding-bottom: 6px; }
+tr:nth-child(even){ background-color: var(--ash); }
+td { overflow: hidden; text-overflow: ellipsis; word-wrap: break-word; }
+.table-fixed { width: 100%; table-layout: fixed; }
+.table-segments th:nth-child(1) { width: 60px; }
+.table-segments th:nth-child(2) { width: 140px; }
+.table-segments th:nth-child(3) { width: 120px; }
+.table-segments th:nth-child(4) { width: 120px; }
+.table-segments th:nth-child(5) { width: 120px; }
+.table-segments th:nth-child(6), .table-segments th:nth-child(7) { width: 180px; }
+
+/* DataTables wrapper */
+div.dataTables_wrapper { table-layout: fixed; margin: 0 auto; max-width: 800px; float: left; }
+
+/* ========== Buttons (unified) ========== */
+.piln-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0 16px; }
+
+.piln-btn,
+button.piln-btn,
+input[type="submit"].piln-btn,
+input[type="button"].piln-btn {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  border: 1px solid var(--btn-border);
+  font-size: 14px;
+  cursor: pointer;
+}
+.piln-btn:hover,
+button.piln-btn:hover,
+input[type="submit"].piln-btn:hover,
+input[type="button"].piln-btn:hover {
+  text-decoration: none;
+  background: var(--btn-hover-bg);
+  border-color: var(--btn-hover-border);
 }
 
-td, th {
-  border: 1px solid #ddd;
-  padding: 4px;
+/* Map any legacy variants to the unified style */
+.piln-btn-secondary,
+.piln-btn-danger,
+.piln-btn-ghost {
+  background: var(--btn-bg) !important;
+  border-color: var(--btn-border) !important;
+  color: var(--btn-text) !important;
+}
+.piln-btn-secondary:hover,
+.piln-btn-danger:hover,
+.piln-btn-ghost:hover {
+  background: var(--btn-hover-bg) !important;
+  border-color: var(--btn-hover-border) !important;
 }
 
-th {
-  padding-top: 4px;
-  padding-bottom: 4px;
-  background-color: #990000;
-  color: white;
+/* ========== Forms ========== */
+.form-row { display: flex; column-gap: 12px; row-gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+.form-inline { display: inline-flex; gap: 10px; align-items: center; }
+.input-text {
+  border: 1px solid var(--steel);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--ink);
 }
+.input-text:focus { outline: none; border-color: var(--ember); box-shadow: 0 0 0 3px rgba(204,84,0,0.2); }
 
-#statusupd1 {
-  font-size:1em;
-  font-weight:bold;
-  font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
+/* spacing */
+.mt-1 { margin-top: 4px; } .mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; }
+.mb-1 { margin-bottom: 4px; } .mb-2 { margin-bottom: 8px; } .mb-3 { margin-bottom: 12px; }
+
+.clear { clear: both; }
+
+/* ========== Small screens ========== */
+@media only screen and (max-width: 480px) {
+  div.dataTables_wrapper { overflow-x: auto; display: block; float: none; }
 }
-
-tr:nth-child(even){background-color: #f2f2f2}
-
-.tab { margin-left: 20px; }
-
-
-div.dataTables_wrapper{
- table-layout: fixed;
- margin: 0 auto; 
- max-width:800px;
- float:left; 
- }
-button {
-margin-top : 5px;
-}
-td {
- overflow:hidden;
- text-overflow:ellipsis;
- word-wrap: word-break;} 
- 
- @media only screen and (max-width: 480px) {
-    /* horizontal scrollbar for tables if mobile screen */
-    div.dataTables_wrapper {
-        overflow-x: auto;
-        display: block;
-    }
-
- }
-.logo {
-/*display:block;
-margin-left: auto;
-margin-right: auto;*/
-max-width: 229px;
-padding: 15px 15px 15px 15px;
-}
-.status {
-display:block;
-margin-left:auto;
-margin-right:auto;
-padding: 15px 15px 15px 15px;
-} 
-
-#statusupd2 {
-font-size:1em;
-font-weight:bold;
-font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
-}
-.clear {
-clear:both;
-}
-.temp {
-font-size:3em;
-}
- 

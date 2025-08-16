@@ -15,7 +15,14 @@ APP_DIR = "/home/pi/PILN"
 STAT_FILE = os.path.join(APP_DIR, "app", "pilnstat.json")
 DB_PATH = os.path.join(APP_DIR, "db", "PiLN.sqlite3")
 
-app = Flask(__name__)
+
+app = Flask(
+    __name__,
+    template_folder="/home/pi/PILN/template",   # <-- add this
+    # static_folder can stay default; lighttpd is serving /style itself
+#	static_folder=os.path.join(APP_DIR, "style"),
+#    static_url_path="/style",   
+)
 
 # -------- helpers --------
 def get_db():
@@ -65,6 +72,16 @@ def status():
             "segtime": "0:00:00",
             "error": str(e)
         }), 200
+
+
+#@app.get("/images/<path:filename>")
+#def images(filename):
+#    return send_from_directory(os.path.join(APP_DIR, "images"), filename)
+
+# (optional) favicon
+#@app.get("/favicon.ico")
+#def favicon():
+#    return send_from_directory(os.path.join(APP_DIR, "images"), "favicon.ico")
 
 
 # -------- NEW: incremental data endpoint --------
@@ -304,4 +321,240 @@ def status_from_db():
             "segtime": "0:00:00",
             "_error": str(e),
         }
+        
+# ---------- UI helpers ----------
+from flask import render_template, request
+
+def render_page(title: str, body_template: str, **ctx):
+    """Stitch header + body + footer (keeps your current template structure)."""
+    hdr = render_template("header.html", title=title)
+    bdy = render_template(body_template, **ctx)
+    ftr = render_template("footer.html")
+    return hdr + bdy + ftr
+
+# ---------- UI: HOME ----------
+@app.get("/")
+@app.get("/home")
+def ui_home():
+    db = get_db()
+    rows = db.execute("""
+        SELECT state, run_id, notes, start_time AS lastdate,
+               CASE state
+                 WHEN 'Running' THEN 0
+                 WHEN 'Staged'  THEN 1
+                 WHEN 'Stopped' THEN 2
+                 WHEN 'Completed' THEN 3
+               END AS ord_key
+        FROM profiles
+        ORDER BY ord_key ASC, run_id DESC
+    """).fetchall()
+    return render_page("Profile List", "home.html", profiles=rows)
+
+# ---------- UI: VIEW PROFILE ----------
+# ---------- UI: VIEW PROFILE ----------
+@app.route("/view", methods=["GET", "POST"])
+def ui_view():
+    # request.values merges args (GET) and form (POST)
+    run_id_raw = request.values.get("run_id", "0")
+    state  = request.values.get("state", "")
+    notes  = request.values.get("notes", "")
+
+    try:
+        run_id = int(run_id_raw)
+    except (TypeError, ValueError):
+        run_id = 0
+
+    db = get_db()
+    profile = db.execute("SELECT * FROM profiles WHERE run_id = ?", (run_id,)).fetchone()
+    segments = db.execute("""
+        SELECT segment, set_temp, rate, hold_min, int_sec, start_time, end_time
+        FROM segments
+        WHERE run_id = ?
+        ORDER BY segment
+    """, (run_id,)).fetchall()
+
+    if state in ("Completed", "Stopped", "Error"):
+        viewtmpl = "view_comp.html"
+    elif state == "Running":
+        viewtmpl = "view_run.html"
+    else:
+        viewtmpl = "view_staged.html"
+
+    page = render_template(viewtmpl, segments=segments, profile=profile,
+                           run_id=run_id, state=state, notes=notes)
+
+    if state in ("Completed", "Running", "Stopped"):
+        page += render_template("chart.html", run_id=run_id, notes=notes)
+
+    return render_template("header.html", title="Profile Details") + page + render_template("footer.html")
+
+# ---------- UI: NEW PROFILE FORM ----------
+@app.get("/new")
+def ui_new():
+    maxsegs = 20
+    segments = range(1, maxsegs + 1)
+    return render_page("New Profile", "new.html", segments=segments)
+
+# ---------- UI: EDIT/COPY ----------
+@app.get("/editcopy")
+def ui_editcopy():
+    run_id = int(request.args.get("run_id", "0"))
+    db = get_db()
+
+    segments = db.execute("""
+        SELECT segment, set_temp, rate, hold_min, int_sec
+        FROM segments WHERE run_id = ? ORDER BY segment
+    """, (run_id,)).fetchall()
+
+    curcount = len(segments)
+    maxsegs = 20
+    addsegs = range(curcount + 1, maxsegs + 1)
+    lastseg = curcount
+
+    profile = db.execute(
+        "SELECT notes, p_param, i_param, d_param FROM profiles WHERE run_id = ?",
+        (run_id,)
+    ).fetchone()
+
+    state  = request.args.get("state", "")
+    notes  = request.args.get("notes", "")
+
+    return render_page("Edit/Copy Profile", "editcopy.html",
+                       segments=segments, addsegs=addsegs, lastseg=lastseg,
+                       run_id=run_id, profile=profile, state=state, notes=notes)
+
+# ---------- UI: RUN PROFILE ----------
+@app.post("/run")
+def ui_run():
+    run_id = int(request.form.get("run_id", "0"))
+    notes  = request.form.get("notes", "")
+
+    db = get_db()
+    running = db.execute("SELECT run_id FROM profiles WHERE state='Running'").fetchone()
+    if running:
+        msg = f"Unable start profile - Profile {int(running['run_id'])} already running"
+        body = render_template("reload.html", target_page="view", timeout=5000,
+                               message=msg, params={"run_id": run_id, "state": "Staged", "notes": notes})
+        return render_template("header.html", title="Run Profile") + body + render_template("footer.html")
+
+    db.execute("UPDATE profiles SET state = ? WHERE run_id = ?", ("Running", run_id))
+    db.commit()
+    body = render_template("reload.html", target_page="view", timeout=800,
+                           message="Updating profile to running state...",
+                           params={"run_id": run_id, "state": "Running", "notes": notes})
+    return render_template("header.html", title="Run Profile") + body + render_template("footer.html")
+
+# ---------- UI: SAVE NEW / UPDATE ----------
+@app.post("/savenew")
+@app.post("/saveupd")
+def ui_save():
+    maxsegs = 20
+    def_rate, def_holdmin, def_intsec = 9999, 0, 30
+
+    db = get_db()
+    page = request.path.rsplit("/", 1)[-1]  # savenew or saveupd
+
+    p_param = float(request.form.get("Kp", 0.0))
+    i_param = float(request.form.get("Ki", 0.0))
+    d_param = float(request.form.get("Kd", 0.0))
+    notes   = request.form.get("notes", "")
+
+    if page == "savenew":
+        cur = db.execute(
+            "INSERT INTO profiles (state, notes, p_param, i_param, d_param) VALUES (?,?,?,?,?)",
+            ("Staged", notes, p_param, i_param, d_param)
+        )
+        run_id = cur.lastrowid
+    else:
+        run_id = int(request.form.get("run_id", "0"))
+        db.execute(
+            "UPDATE profiles SET notes=?, p_param=?, i_param=?, d_param=? WHERE run_id=?",
+            (notes, p_param, i_param, d_param, run_id)
+        )
+        db.execute("DELETE FROM segments WHERE run_id=?", (run_id,))
+
+    # insert segments
+    seg_rows = []
+    for num in range(1, maxsegs + 1):
+        seg = str(num)
+        set_temp = request.form.get("set_temp" + seg, "")
+        rate     = request.form.get("rate" + seg, "")
+        hold_min = request.form.get("hold_min" + seg, "")
+        int_sec  = request.form.get("int_sec" + seg, "")
+        if set_temp != "":
+            if rate == "":     rate = def_rate
+            if hold_min == "": hold_min = def_holdmin
+            if int_sec == "":  int_sec  = def_intsec
+            seg_rows.append((run_id, num, int(set_temp), int(rate), int(hold_min), int(int_sec)))
+
+    if seg_rows:
+        db.executemany("""
+            INSERT INTO segments (run_id, segment, set_temp, rate, hold_min, int_sec)
+            VALUES (?,?,?,?,?,?)""", seg_rows)
+
+    db.commit()
+
+    body = render_template("reload.html", target_page="view", timeout=1000,
+                           message="Saving profile...",
+                           params={"state": "Staged", "run_id": run_id, "notes": notes})
+    return render_template("header.html", title="Save Profile") + body + render_template("footer.html")
+
+# ---------- UI: DELETE CONFIRM ----------
+@app.get("/del_conf")
+def ui_del_conf():
+    run_id = int(request.args.get("run_id", "0"))
+    state  = request.args.get("state", "")
+    notes  = request.args.get("notes", "")
+
+    db = get_db()
+    segs = db.execute("""
+        SELECT segment, set_temp, rate, hold_min, int_sec, start_time, end_time
+        FROM segments WHERE run_id=? ORDER BY segment
+    """, (run_id,)).fetchall()
+
+    return render_page("Confirm Profile Delete", "del_conf.html",
+                       segments=segs, run_id=run_id, notes=notes, state=state)
+
+# ---------- UI: DELETE ----------
+@app.post("/delete")
+def ui_delete():
+    run_id = int(request.form.get("run_id", "0"))
+    db = get_db()
+    db.execute("DELETE FROM firing  WHERE run_id=?", (run_id,))
+    db.execute("DELETE FROM segments WHERE run_id=?", (run_id,))
+    db.execute("DELETE FROM profiles WHERE run_id=?", (run_id,))
+    db.commit()
+
+    body = render_template("reload.html", target_page="home", timeout=1000,
+                           message="Deleting profile...", params={"run_id": run_id})
+    return render_template("header.html", title="Delete Profile") + body + render_template("footer.html")
+
+# ---------- UI: STOP ----------
+@app.post("/stop")
+def ui_stop():
+    run_id = int(request.form.get("run_id", "0"))
+    db = get_db()
+    db.execute("UPDATE profiles SET state=? WHERE run_id=?", ("Stopped", run_id))
+    db.commit()
+
+    body = render_template("reload.html", target_page="home", timeout=1000,
+                           message="Updating profile...", params={"run_id": run_id})
+    return render_template("header.html", title="Stop Profile Run") + body + render_template("footer.html")
+
+# ---------- UI: SAVE NOTES ----------
+@app.post("/notes_save")
+def ui_notes_save():
+    run_id = int(request.form.get("run_id", "0"))
+    notes  = request.form.get("notes", "")
+    state  = request.form.get("state", "")
+
+    db = get_db()
+    db.execute("UPDATE profiles SET notes=? WHERE run_id=?", (notes, run_id))
+    db.commit()
+
+    body = render_template("reload.html", target_page="view", timeout=0,
+                           message="Saving notes...",
+                           params={"state": state, "run_id": run_id, "notes": notes})
+    return render_template("header.html", title="Save Notes") + body + render_template("footer.html")
+
 

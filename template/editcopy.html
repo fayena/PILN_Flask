@@ -1,51 +1,67 @@
- <h4 style="display:inline;margin-left:30px">
- <form method="post" style="display:inline;">
- {% if state == 'Staged' %}
-  <input type="hidden" name="run_id" value="{{ run_id }}">
-  <input type="hidden" name="lastseg" value="{{ lastseg }}">
-  <button type="submit" name="page" value="saveupd" >Update Profile</button>
- &nbsp&nbsp&nbsp&nbsp
- {% endif %}
-  <button type="submit" name="page" value="savenew" >Save to New Profile</button>
- &nbsp&nbsp&nbsp&nbsp
-  <button type="submit" name="page" value="">Cancel</button>
- </h4>
- <br><br>
- <h2 style="display:inline;margin-left:30px">Enter Profile Settings</h2><br><br>
- <h4 style="display:inline;margin-left:30px">Schedule (Format MUST be 2021-08-19 17:18:12): </h4>
- <input style="border: none;border-bottom: 2px solid blue;" type="text" name="schedule" value="{{ profile['Schedule'] }}" size="25" ><br><br>
- <h4 style="display:inline;margin-left:30px">Notes: </h4>
- <input style="border: none;border-bottom: 2px solid blue;" type="text" name="notes" value="{{ profile['notes'] }}" size="60" ><br><br>
- <h4 style="display:inline;margin-left:30px">PID Settings: </h4>&nbsp;&nbsp;
- <h5 style="display:inline;">Proportional: </h5><input style="border: none;border-bottom: 2px solid blue;" type="text" name="Kp" value="{{ profile['p_param'] }}" size="4" >
- <h5 style="display:inline;">&nbsp;&nbsp;&nbsp;&nbsp;Integral: </h5><input style="border: none;border-bottom: 2px solid blue;" type="text" name="Ki" value="{{ profile['i_param'] }}" size="4" >
- <h5 style="display:inline;">&nbsp;&nbsp;&nbsp;&nbsp;Derivative: </h5><input style="border: none;border-bottom: 2px solid blue;" type="text" name="Kd" value="{{ profile['d_param'] }}" size="4" ><br><br>
- <table style="margin-left:30px">
- <tr>
-  <th>Segment</th>
-  <th>Target &deg;C</th>
-  <th>Rate(&deg;C/hr)</th>
-  <th>Hold Minutes</th>
-  <th>Interval Seconds</th>
- </tr>
- {% for segment in segments %}
- <tr>
-  <td>{{ loop.index }}</td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="set_temp{{ loop.index }}" value="{{ segment['set_temp'] }}" size="4" ></td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="rate{{ loop.index }}" value="{{ segment['rate'] }}" size="4" ></td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="hold_min{{ loop.index }}" value="{{ segment['hold_min'] }}" size="4" ></td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="int_sec{{ loop.index }}" value="{{ segment['int_sec'] }}" size="4" ></td>
- </tr>
- {% endfor %}
- {% for segment in addsegs %}
- <tr>
-  <td>{{ segment }}</td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="set_temp{{ segment }}" size="4" ></td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="rate{{ segment }}" size="4" ></td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="hold_min{{ segment }}" size="4" ></td>
-  <td><input style="border: none;border-bottom: 2px solid blue;" type="text" name="int_sec{{ segment }}" size="4" ></td>
- </tr>
- {% endfor %}
- </table>
- </form>
- <br>
+
+<div class="piln-actions">
+  <a class="piln-btn" href="/home">Home</a>
+  <button type="submit" class="piln-btn">Save to New Profile</button>
+  <a class="piln-btn piln-btn-secondary" href="/view?run_id={{ run_id }}&state={{ state }}&notes={{ profile['notes']|urlencode }}">Cancel</a>
+
+</div>
+
+<h2>Edit/Copy Profile</h2>
+
+<!-- Update existing -->
+<form method="post" action="/saveupd" class="mt-2">
+  {% if state == 'Staged' %}
+    <input type="hidden" name="run_id" value="{{ run_id }}">
+    <input type="hidden" name="lastseg" value="{{ lastseg }}">
+    <button type="submit" class="piln-btn">Update Profile</button>
+  {% endif %}
+</form>
+
+<!-- Save as new -->
+<form method="post" action="/savenew" class="mt-2">
+  <div class="form-row">
+    <label for="notes" class="sr-only">Notes</label>
+    <input id="notes" class="input-text" type="text" name="notes" value="{{ profile['notes'] }}" size="60" placeholder="Notes">
+  </div>
+  <div class="form-row">
+    <label for="Kp" class="sr-only">Kp</label>
+    <input id="Kp" class="input-text" type="text" name="Kp" value="{{ profile['p_param'] }}" size="4" placeholder="Kp">
+    <label for="Ki" class="sr-only">Ki</label>
+    <input id="Ki" class="input-text" type="text" name="Ki" value="{{ profile['i_param'] }}" size="4" placeholder="Ki">
+    <label for="Kd" class="sr-only">Kd</label>
+    <input id="Kd" class="input-text" type="text" name="Kd" value="{{ profile['d_param'] }}" size="4" placeholder="Kd">
+  </div>
+
+  <table class="table-fixed table-segments mt-2">
+    <thead>
+      <tr>
+        <th>Segment</th>
+        <th>Target &deg;C</th>
+        <th>Rate(&deg;C/hr)</th>
+        <th>Hold Minutes</th>
+        <th>Interval Seconds</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for segment in segments %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td><input class="input-text" type="text" name="set_temp{{ loop.index }}" value="{{ segment['set_temp'] }}" size="4"></td>
+        <td><input class="input-text" type="text" name="rate{{ loop.index }}" value="{{ segment['rate'] }}" size="4"></td>
+        <td><input class="input-text" type="text" name="hold_min{{ loop.index }}" value="{{ segment['hold_min'] }}" size="4"></td>
+        <td><input class="input-text" type="text" name="int_sec{{ loop.index }}" value="{{ segment['int_sec'] }}" size="4"></td>
+      </tr>
+    {% endfor %}
+    {% for segment in addsegs %}
+      <tr>
+        <td>{{ segment }}</td>
+        <td><input class="input-text" type="text" name="set_temp{{ segment }}" size="4"></td>
+        <td><input class="input-text" type="text" name="rate{{ segment }}" size="4"></td>
+        <td><input class="input-text" type="text" name="hold_min{{ segment }}" size="4"></td>
+        <td><input class="input-text" type="text" name="int_sec{{ segment }}" size="4"></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</form>
+  

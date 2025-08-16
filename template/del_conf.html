@@ -1,31 +1,40 @@
- <h4 style="display:inline;margin-left:30px">
- <form method="post" style="display:inline;">
-  <input type="hidden" name="run_id" value="{{ run_id }}">
-  <button type="submit" name="page" value="delete" class="btn-link">Confirm Profile Delete</button>
-  &nbsp&nbsp&nbsp&nbsp
-  <button type="submit" name="page" value="" class="btn-link">Cancel</button>
- </h4>
- <br><br>
- {{ message }}
- <h2 style="display:inline;margin-left:30px">Segments for {{ state }} Firing Profile {{ run_id }}</h2><br>
- <h5 style="display:inline;margin-left:30px">{{ notes }}</h3><br>
- <table style="margin-left:30px">
- <tr>
-  <th>Segment</th>
-  <th>Target &deg;C</th>
-  <th>Rate(&deg;C/hr)</th>
-  <th>Hold Minutes</th>
-  <th>Interval Seconds</th>
- </tr>
- {% for segment in segments %}
- <tr>
-  <td>{{ segment['segment'] }}</td>
-  <td>{{ segment['set_temp'] }}</td>
-  <td>{{ segment['rate'] }}</td>
-  <td>{{ segment['hold_min'] }}</td>
-  <td>{{ segment['int_sec'] }}</td>
- </tr>
- {% endfor %}
- </table>
- </form>
- <br>
+
+<div class="piln-actions">
+  <a class="piln-btn" href="/home">Home</a>
+</div>
+<div class="piln-actions mt-3">
+  <form class="form-inline" method="post" action="/delete">
+    <input type="hidden" name="run_id" value="{{ run_id }}">
+    <button type="submit" class="piln-btn piln-btn-danger">Confirm Profile Delete</button>
+  </form>
+  <a class="piln-btn piln-btn-secondary" href="/view?run_id={{ run_id }}&state={{ state }}&notes={{ notes|urlencode }}">Cancel</a>
+</div>
+
+<h2>Confirm Profile Delete</h2>
+<p class="mb-2">Are you sure you want to delete profile <strong>{{ run_id }}</strong>?</p>
+<p class="mb-2">{{ notes }}</p>
+
+<table class="table-fixed table-segments mt-2">
+  <thead>
+    <tr>
+      <th>Segment</th>
+      <th>Target &deg;C</th>
+      <th>Rate(&deg;C/hr)</th>
+      <th>Hold Minutes</th>
+      <th>Interval Seconds</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for segment in segments %}
+    <tr>
+      <td>{{ segment['segment'] }}</td>
+      <td>{{ segment['set_temp'] }}</td>
+      <td>{{ segment['rate'] }}</td>
+      <td>{{ segment['hold_min'] }}</td>
+      <td>{{ segment['int_sec'] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+

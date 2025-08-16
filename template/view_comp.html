@@ -1,49 +1,37 @@
- <div>
-   <form method="post" style="display:inline;">
-  <button type="submit" name="page" value="" >Home</button>
 
-  <input type="hidden" name="run_id" value="{{ run_id }}">
-  <input type="hidden" name="state" value="{{ state }}">
-  <input type="hidden" name="notes" value="{{ notes }}">
-  <button type="submit" name="page" value="editcopy" >Copy to New Profile</button>
-  
-  <input type="hidden" name="run_id" value="{{ run_id }}">
-  <input type="hidden" name="notes" value="{{ notes }}">
-  <button type="submit" name="page" value="del_conf" >Delete Profile</button>
- </form>
- </div>
- 
- {{ message }}
- <h2 >Segments for {{ state }} Profile {{ run_id }}</h2>
- <form method="post" >
-  <input type="hidden" name="run_id" value="{{ run_id }}">
-  <input type="hidden" name="state" value="{{ state }}">
-  <input type="text" name="notes" value="{{ notes }}" size="60">
-  <button type="submit" name="page" value="notes_save" >Update Notes</button>
- </form>
- <br>
- <h4 >PID Settings: </h4>
- <h5>Proportional: {{ profile['p_param'] }}&nbsp;&nbsp;&nbsp;&nbsp;Integral: {{ profile['i_param'] }}&nbsp;&nbsp;&nbsp;&nbsp;Derivative: {{ profile['d_param'] }}</h5>
- <table >
- <tr>
-  <th>Seg</th>
-  <th>Trg &deg;C</th>
-  <th>&deg;C/hr</th>
-  <th>Hold Min</th>
-  <th>Int Sec</th>
-  <th>Last Start Time</th>
-  <th>Last End Time</th>
- </tr>
- {% for segment in segments %}
- <tr>
-  <td>{{ segment['segment'] }}</td>
-  <td>{{ segment['set_temp'] }}</td>
-  <td>{{ segment['rate'] }}</td>
-  <td>{{ segment['hold_min'] }}</td>
-  <td>{{ segment['int_sec'] }}</td>
-  <td>{{ segment['start_time'] }}</td>
-  <td>{{ segment['end_time'] }}</td>
- </tr>
- {% endfor %}
- </table>
- <br>
+<div class="piln-actions">
+  <a class="piln-btn" href="/home">Home</a>
+  <a class="piln-btn piln-btn-secondary"
+     href="/editcopy?run_id={{ run_id }}&state={{ state }}&notes={{ notes|urlencode }}">Copy to New Profile</a>
+  <a class="piln-btn piln-btn-danger"
+     href="/del_conf?run_id={{ run_id }}&state={{ state }}&notes={{ notes|urlencode }}">Delete Profile</a>
+</div>
+
+{% if message %}<p>{{ message }}</p>{% endif %}
+
+<h2>Segments for {{ state }} Profile {{ run_id }}</h2>
+<p class="mb-2">{{ notes }}</p>
+
+<table class="table-fixed table-segments mt-2">
+  <thead>
+    <tr>
+      <th>Segment</th>
+      <th>Target &deg;C</th>
+      <th>Rate(&deg;C/hr)</th>
+      <th>Hold Minutes</th>
+      <th>Interval Seconds</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for segment in segments %}
+    <tr>
+      <td>{{ segment['segment'] }}</td>
+      <td>{{ segment['set_temp'] }}</td>
+      <td>{{ segment['rate'] }}</td>
+      <td>{{ segment['hold_min'] }}</td>
+      <td>{{ segment['int_sec'] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<br>
