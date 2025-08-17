@@ -1,166 +1,71 @@
-### UPDATE:  8/14/2025 Work in Process do not use!!!
+# PiLN Flask – Raspberry Pi Kiln Controller
 
+> **UPDATE (2025-08-16):** Major refresh. The app now runs on **Flask + Gunicorn**, fronted by **nginx**, with a cleaner UI, faster charts, and a proper JSON API.  
+> ⚠️ Electricity and heat are dangerous. Evaluate risk and make your own go/no-go decision. You are responsible for your setup and safety.
 
-## Electricity and heat are dangerous! Evaluate the risk and make go no go decision!  I am not responsible for any injuries sustained or fires started!!!
+---
 
-## Useful skills
-- linux command line
-- basic soldering (to make all your connections permanent)
-- electricity
-## Helpful stuff
-- Fritzing https://fritzing.org/home/ for viewing the fritizng wiring diagram
-- SQLite Browser https://sqlitebrowser.org/ for viewing the sqlite3 database
-- unl2003a pin diagram http://www.bristolwatch.com/ele/uln2003a/uln2003a_2.jpg
-- Rasperry pi 40 pin connector pin diagram http://www.bristolwatch.com/ele/uln2003a/uln2003a_2.jpg  
-## Code Info
-This is a mesh of code from both git@github.com:pvarney/PiLN.git and git@github.com:BlakeCLewis/PILN.git  
+## Table of Contents
 
-It will work for smaller kilns.  My largest one is 27amps.  Theoretically it would work with a kiln up to about 84 amps (two 60 amp relays with 30% allowance).  However, I have not tried it and will not be trying it anytime soon.   If you decide to try a larger kiln, make sure all your wires are rated for the amperage you will be pulling.  Again electricity can cause injuries and death and can also start fires if done wrong.  Use your own judgement!
+- [What’s New](#whats-new)
+- [Safety Disclaimer](#safety-disclaimer)
+- [Hardware](#hardware)
+- [Quick Start](#quick-start)
+- [Directory Layout](#directory-layout)
+- [Database](#database)
+- [API](#api)
+  - [/api/health](#get-apihealth)
+  - [/api/status](#get-apistatus)
+  - [/api/data](#post-apidata)
+- [UI Routes](#ui-routes)
+- [nginx Reference](#nginx-reference)
+- [Firing Daemon Notes](#firing-daemon-notes)
+- [Troubleshooting](#troubleshooting)
+- [Screenshots](#screenshots)
+- [Credits](#credits)
+- [Appendix: Useful Commands](#appendix-useful-commands)
 
+---
 
-Changes I made to code include:
-- Changing the logging function to be a per run log with the file named by RunID.  The logging does not run while the daemon is idle.     
-- Adding an error trigger if the ramp temperature is 200C or more than the read temperature.   This errors the run and keeps your kiln from running and running trying to reach temp when it's not going to happen.
-- Adding some code to resume in case of a power flicker.   It checks for completed segments and resumes the segment not completed.   While this will work fine for ramps, it could result in over firing if it lands on a hold.   ALWAYS Monitor you kiln!
-- Added sorting to the main chart.   
-- Removed, all the lcd code and the second thermocouple sensor and the kiln sitter code that BlackCLewis had added. 
-- Kiln sitter is used as the safetly.   Put a small cone in the sitter that is at least one cone highter than your desired   firing.      
-- Added Testing Code (see bottom of readme for instructions).    
+## What’s New
 
-I do not have a screen or wifi at my kiln location.   I tether my cell phone and then access the raspberry pi through ssh and a webbrowser both on my phone.   It will connect from a surprising distance this way.
+- ✅ Switched from CGI scripts to **Flask** (`/home/pi/PILN/api/app.py`) served by **Gunicorn**
+- ✅ **nginx** reverse proxy (simpler & more reliable for this project)
+- ✅ **DB-driven status**: `/api/status` pulls from SQLite (`profiles`, `firing`, `segments`) and checks the `pilnfired.py` daemon
+- ✅ **Incremental charting**: `/api/data` returns only new points after a timestamp so charts stay fast
+- ✅ Cleaned up **templates** and CSS; consistent actions (links vs buttons) and mobile-friendly header with logo + live status
+- ✅ Old files no longer used: `app/check.cgi`, `app/data.cgi`, `app/data.json` (safe to remove)
 
-Possible future improvements    
-- install script (DONE)
-- Offline charts  This would be really helpful to someone who uses a raspberry pi touch screen to run the daemon with no wifi.  (Done)
-- performance watchdog:
-    + klexting;  Sounds like fun to add but at the time it's not really helpful to me as I don't have wifi at my kiln           location    
-    
-## Hardware and Cost:
-- Raspberry pi   I bought a Raspberry Pi 4 with 1gb ram for $41 on amazon.  I Installed the latested Raspbian but other Pi's will work.
-- micro SD card (I used 32GB one)
-- Raspberry pi Power supply and case if you want to build it as removable from the kiln controller.   If not you can add a 12v to 5v power board and have everything built permanently.   I bring my pi to my house for testing and use it for other things so building it this way is convenient for me.    
-- 1 MAX31856 thermocouple module
-    + $17.50 each, Adafruit (https://www.adafruit.com/product/3263);
-- High temperature (2372 F) type K thermocouple
-    + $7 https://www.aliexpress.com/item/32832729663.html?spm=a2g0s.9042311.0.0.b8fd4c4dqA7r1E
-- Thermocouple wire
-    + Braided wire 10m   $5.63  https://www.aliexpress.com/item/32961438359.html?spm=a2g0s.9042311.0.0.b8fd4c4dqA7r1E
-- ULN2803A $1.22/10 to switch 12V fan and 12V coils of the relays Ali Express
- 
-- JQX-60F 1Z 60A High-power relay DC12V coils  They are loud when switching but generate very little heat.   Very pleased so far we'll see how long they last.  
-    + 2 $3.73 each +$6.29 shipping https://www.aliexpress.com/item/32858874579.html?spm=a2g0s.9042311.0.0.b8fd4c4dqA7r1E or for about $12 each on amazon
-- 12V power supply
-    + converts 120vac to 12vdc,
-    + supplies 12v to relay coils
-    + $7.19 https://www.aliexpress.com/item/32911389359.html?spm=a2g0s.9042311.0.0.b8fd4c4dqA7r1E,
-- crimp terminals, #10 awg, hi-temp appliance
-    + $.16/each, (https://www.amazon.com/gp/product/B01L2TL63C/ref=oh_aui_detailpage_o02_s00?ie=UTF8&psc=1),
-    + uses the same crimper used on the elements $16, (https://www.amazon.com/gp/product/B01L2TL63C/ref=oh_aui_detailpage_o02_s00?ie=UTF8&psc=1);
-    + the crimpers require muscle
-- big crimper
-    + $25, (https://www.amazon.com/gp/product/B07D7Q54N2/ref=oh_aui_detailpage_o01_s03?ie=UTF8&psc=1),
-    + I crimp 2 times, first time with correct size, second time reduced one notch(correct size is loose);
-- 14 THHN stranded, hardware store, to power 12V supply, white,red,green 2' each;
-- prototype board to mount everything
-    + https://www.amazon.com/gp/product/B071R3BFNL/ref=ppx_yo_dt_b_asin_title_o09_s00?ie=UTF8&psc=1
-- heat shrink, Harbor Freight
-- metal ammo can from harbor freight
+> Hardware, wiring, and DB schema remain compatible with the legacy projects.
 
-Rough breakdown of cost, it's possible I forgot something...If you want to wire you're kiln controller directly to the kiln you could save the cost of the power cord and plug.   
- 
-We had the wire I used to build this so it's not included in the cost.
+---
 
-- raspberry pi 4                       41
-- 32gb micro sd card                    8
-- raspberry pi case and power supply   13.59
-- power cord 240v 50amp                20
-- plug 240v 50amp                      11
-- 12V 5 amp power supply                7.35
-- din rails                             3.61
-- din rail brackets                     3.44
-- 2 60 amp relays                      13.75
-- thermocouple wire                     5.94
-- k style thermocouplex2               13.69
-- Thermocouple Amplifier MAX31856      22
-- metal ammo can                       15
-- solderable breadboards               12.68
-- total                               190ish
+## Safety Disclaimer
 
+Electric kilns draw serious current and reach extreme temperatures. Use properly rated wiring, relays/SSRs, and connectors. Poor electrical work can cause injury, death, or fire. **Monitor every firing.** A kiln sitter/cone and independent safety mechanisms are strongly recommended.
 
-## Thermocouple, Kiln, and Max31856 info
-Thermocouple tip: One side of the type-K thermocouple and type-k wire is magnetic(red side), Test with magnet to wire correctly.
+---
 
--Kilns are old Paragons one is an A88B and one is a A66B.   Both are over 40 years old.   
- Kiln controller can be used with both
+## Hardware
 
-## Install 
+- Raspberry Pi (Pi 4 used here; others work)
+- MAX31856 thermocouple amplifier (SPI)
+- Type-K thermocouple + high-temp thermocouple wire
+- Two high-current relays/SSRs (rated for your load), 12 V coil supply or SSR control
+- ULN2803A / driver (if driving relays), fan, DIN rails, enclosure, terminals, etc.
 
-Instructions for install an operating system to the Raspberry Pi  https://www.raspberrypi.org/documentation/installation/installing-images/    I use the Raspbian OS https://www.raspberrypi.org/downloads/raspbian/  
+> Use parts correctly rated for amperage and temperature.
 
-Stuff to get it to work:
+---
 
-- Pin-Out:
+## Quick Start
 
-        MAX31856 Vcc:    3.3V    PIN17
-        MAX31856 GND:    GND     PIN14
-        MAX31856 SDO:    GPIO 9  MISO
-        MAX31856 SDI:    GPIO 10 MOSI
-        MAX31856 CS:    GPIO 5  (aka D5)
-        MAX31856 SCK:    GPIO 11 CLK
-        unl2003a 1:        GPIO 23
-        unl2003a 3:        GPIO 24
-        unl2003a 8:        GND
-        unl2003a 9:        12V
-        unl2003a 16:    relay #1 coil (input is across the chip on pin1)
-        unl2003a 14:    relay #2 coil (input is pin3)
-        12V:        relay 1 and 2 coils
+1. **Enable SPI/I²C** in `raspi-config` (Interfacing Options).
+2. **Run the setup script** on Raspberry Pi OS:
 
-
-
-- Run Install script
-From the terminal     
-             
-```wget https://raw.githubusercontent.com/fayena/PILN_Flask/refs/heads/main/pilnsetup.sh```
-
-```sudo chmod +x pilnsetup.sh```
-
-```./pilnsetup.sh```
-
-You may have to enter your password and approve installs.   When the raspi-config interface opens select "interfacing options" and enable spi and ic2 and then select "finish".   The script should install everything you need.   This was tested in a raspberry pi 4.   
-       
-
-- Tuning:
-
-    + Skutt KS1027 with old elements:
-    
-            Kc:   6.0
-            Kp:   3.0
-            Ki:   0.4
-            Kd:  13.0
-            Time internal:  30 seconds
-
-- Using the Web App:
-
-        On the same network that the RPi is connected, http://<RPi_IPAddress>/app/home.cgi
-        Or, on the controller RPi, http://localhost/app/home.cgi
-
-- Start the firing daemon:
-
-        If you used the install script the daemon should start automatically.   If it doesn't you can use 
-
-```sudo systemctl  start pilnfired.service```
-
-
-## Testing
- You can run the code and do testing without having any electronics connected.   To run testing change "Debug = False" to "Debug = True" 
- You can change temperature rise and decrease by changing "TempRise += (CycleOnSec*5)" and "TempRise = TempRise - 2"
-
-
-![screen shot of frizing wiring](https://raw.githubusercontent.com/fayena/PILN/master/Fritzing%20wiring%20diagram.png)
-
-![cone 6 drop and hold](https://raw.githubusercontent.com/fayena/PILN/master/Drop%20and%20Hold%20Cone%206.png)
-
-![Bique cone 06](https://raw.githubusercontent.com/fayena/PILN/master/Bique.png)
-
-
+   ```bash
+   cd ~
+   wget https://raw.githubusercontent.com/fayena/PILN_Flask/refs/heads/main/pilnsetup.sh
+   chmod +x pilnsetup.sh
+   ./pilnsetup.sh
 
