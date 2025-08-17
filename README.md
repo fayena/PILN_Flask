@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # PiLN Flask – Raspberry Pi Kiln Controller
+=======
+### UPDATE:  8/14/2025 Work in Process but appears to work fine.   Use with caution.   
+>>>>>>> 192b428aa6f820fd46daa822f7c7a67d2f8529d1
 
 > **UPDATE (2025-08-16):** Major refresh. The app now runs on **Flask + Gunicorn**, fronted by **nginx**, with a cleaner UI, faster charts, and a proper JSON API.  
 > ⚠️ Electricity and heat are dangerous. Evaluate risk and make your own go/no-go decision. You are responsible for your setup and safety.
