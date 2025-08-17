@@ -86,7 +86,7 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
 4. **Open the UI** in your browser:
 
    ```
-   http://<your-pi-ip>/
+   http://<your-pi-ip>/home
    ```
 
 ---
@@ -214,22 +214,40 @@ The installer drops a working config. For reference:
 
 ```nginx
 server {
-  listen 80;
-  server_name _;
+    listen 80;
+    server_name _;
 
-  # Static assets served directly
-  location /style/  { root /home/pi/PILN; }
-  location /images/ { root /home/pi/PILN; }
+    # your project root; so /style maps to /home/pi/PILN/style, /images -> .../images
+    root /home/pi/PILN;
 
-  # Everything else proxied to Flask/Gunicorn
-  location / {
-    proxy_pass         http://127.0.0.1:5000;
-    proxy_set_header   Host              $host;
-    proxy_set_header   X-Real-IP         $remote_addr;
-    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header   X-Forwarded-Proto $scheme;
-  }
+    # serve static directly
+    location ^~ /style/  { try_files $uri =404; }
+    location ^~ /images/ { try_files $uri =404; }
+    location = /favicon.ico { try_files $uri =404; }
+
+    # everything else falls back to Flask on :5000
+    location / {
+        try_files $uri $uri/ @flask;
+    }
+
+    location @flask {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_read_timeout 90s;
+    }
+
+    # (optional) longer cache for static
+    location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg)$ {
+        try_files $uri =404;
+        access_log off;
+        expires -1;
+        add_header Cache-Control "public";
+    }
 }
+
 ```
 
 ---
@@ -263,9 +281,12 @@ sudo systemctl status  pilnfired.service
 Add your images and update the paths:
 
 ```
-![Home](images/screens/home.png)
-![Profile](images/screens/profile.png)
-![Chart](images/screens/chart.png)
+![Home](images/Screenshot%20from%202025-08-17%2011-34-08.png)
+![Home Small Screen](images/Screenshot from 2025-08-17 11-35-33.png)
+![Run](images/Screenshot from 2025-08-17 11-37-45.png)
+![Run Small](images/Screenshot from 2025-08-17 11-38-15.png)
+![Copy Run](images/Screenshot from 2025-08-17 11-39-35.png)
+![Copy Run small] (images/Screenshot from 2025-08-17 11-39-14.png)
 ```
 
 ---
