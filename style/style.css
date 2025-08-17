@@ -45,12 +45,16 @@ a { color: var(--ember); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* ========== Logo + Status ========== */
-.logo { width: clamp(120px, 22vw, 260px); margin: 8px auto; padding: 2px 0; line-height: 0; }
+.logo { flex: 0 0 auto; width: clamp(120px, 22vw, 260px); margin: 0; padding: 2px 0; line-height: 0; }
 .logo_img, .logo img { display: block; width: 100%; height: auto; object-fit: contain; }
 
 .status { padding: 8px 15px 0; }
 #statusupd1, #statusupd2 { font-weight: bold; font-size: 1em; }
 .temp { font-size: 3em; color: var(--ember-hover); }
+.status {
+  flex: 1 1 auto;
+  text-align: right;
+}
 
 /* ========== Tables ========== */
 table {
@@ -137,6 +141,18 @@ input[type="button"].piln-btn:hover {
 @media only screen and (max-width: 480px) {
   div.dataTables_wrapper { overflow-x: auto; display: block; float: none; }
 }
+@media only screen and (max-width: 640px) {
+  .page-head {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+  }
+  .status { 
+    text-align: center; 
+    width: 100%;
+  }
+}
 
 
 
@@ -157,9 +173,12 @@ input[type="button"].piln-btn:hover {
   display: flex;
   align-items: center;
   gap: 16px;
+  justify-content: space-between;
   padding: 8px 0 12px;
   border-bottom: 1px solid var(--steel);
 }
+
+
 .page-head .spacer { flex: 1; }
 
 /* Status pill */
