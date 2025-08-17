@@ -58,7 +58,7 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
 > Use parts correctly rated for amperage and temperature.
 
 ## Raspberry Pi Pins
-
+```
   MAX31856 Vcc:    3.3V    PIN17
   MAX31856 GND:    GND     PIN14
   MAX31856 SDO:    MISO
@@ -69,7 +69,7 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
   Relay            D6
   
    You can use other pins.   Change them in pilnfired.py
-
+```
 ---
 
 ## Quick Start
