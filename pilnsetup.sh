@@ -164,7 +164,7 @@ sudo systemctl enable pilnfired.service
 sudo systemctl restart pilnfired.service
 
 # ---------- flask service ----------
-# Ads a flask service
+# Adds a flask service
 sudo tee "$FLASK_SERVICE" >/dev/null <<EOF
 [Unit]
 Description=PiLN Flask API (Gunicorn)
