@@ -52,10 +52,23 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
 - Raspberry Pi Zero 2 W 
 - MAX31856 thermocouple amplifier (SPI)
 - Type-K or Type-S thermocouple + high-temp thermocouple wire
-- Two high-current relays/SSRs (rated for your load), 12 V coil supply or SSR control
-
+- Two high-current relays/SSRs (rated for at least 20% higher than half your load)
+- Optional power supply for mechanical relays (if you have questions contact me.   I'm currently using solid state relays but have used a power supply and mechanical in the past.   
 
 > Use parts correctly rated for amperage and temperature.
+
+## Raspberry Pi Pins
+
+  MAX31856 Vcc:    3.3V    PIN17
+  MAX31856 GND:    GND     PIN14
+  MAX31856 SDO:    MISO
+  MAX31856 SDI:    MOSI
+  MAX31856 CS:     D0
+  MAX31856 SCK:    CLK
+  Relay            D5
+  Relay            D6
+  
+   You can use other pins.   Change them in pilnfired.py
 
 ---
 
