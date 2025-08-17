@@ -69,7 +69,7 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
    wget https://raw.githubusercontent.com/fayena/PILN_Flask/refs/heads/main/pilnsetup.sh
    chmod +x pilnsetup.sh
    ./pilnsetup.sh
-````
+	```
 
 3. **Services** (installed by the script):
 
