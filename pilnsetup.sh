@@ -163,9 +163,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable pilnfired.service
 sudo systemctl restart pilnfired.service
 
-# ---------- flash service ----------
-# Ads a flash service
-sudo tee "$FLASH_SERVICE" >/dev/null <<EOF
+# ---------- flask service ----------
+# Ads a flask service
+sudo tee "$FLASK_SERVICE" >/dev/null <<EOF
 [Unit]
 Description=PiLN Flask API (Gunicorn)
 After=network-online.target
