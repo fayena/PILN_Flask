@@ -280,14 +280,13 @@ sudo systemctl status  pilnfired.service
 
 Add your images and update the paths:
 
-```
 ![Home](images/Screenshot%20from%202025-08-17%2011-34-08.png)
 ![Home Small Screen](images/Screenshot from 2025-08-17 11-35-33.png)
 ![Run](images/Screenshot from 2025-08-17 11-37-45.png)
 ![Run Small](images/Screenshot from 2025-08-17 11-38-15.png)
 ![Copy Run](images/Screenshot from 2025-08-17 11-39-35.png)
 ![Copy Run small] (images/Screenshot from 2025-08-17 11-39-14.png)
-```
+
 
 ---
 
