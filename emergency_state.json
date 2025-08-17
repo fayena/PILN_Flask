@@ -1,8 +1,0 @@
-{
-  "timestamp": "2025-08-13 18:50:19",
-  "failure_count": 51,
-  "recovery_level": 5,
-  "last_good_temp": null,
-  "last_good_time": 0,
-  "reason": "Thermocouple failure - emergency reboot"
-}
