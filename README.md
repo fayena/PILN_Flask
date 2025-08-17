@@ -1,4 +1,4 @@
-### UPDATE:  8/14/2025 Work in Process do not use!!!
+### UPDATE:  8/14/2025 Work in Process but appears to work fine.   Use with caution.   
 
 
 ## Electricity and heat are dangerous! Evaluate the risk and make go no go decision!  I am not responsible for any injuries sustained or fires started!!!
