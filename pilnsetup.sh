@@ -22,10 +22,7 @@ sudo apt -y install \
 if [ ! -d "$APP_HOME/.git" ]; then
  git clone --depth=1 "$REPO_URL" "$APP_HOME"
 else
-  cd "$APP_HOME"
-  git fetch origin "$REPO_BRANCH"
-  git checkout "$REPO_BRANCH"
-  git pull
+  echo "git exists"
 fi
 
 # ---------- create basic dirs ----------
@@ -89,11 +86,8 @@ sudo ufw allow 5000/tcp
 
 # ---------- permissions ----------
 sudo chown -R -L www-data:www-data "$APP_HOME/style"
-sudo chown pi:pi "$APP_HOME/app/pilnstat.json" || true
 sudo chown pi:pi "$APP_HOME/log"
 sudo chown -R pi:www-data "$APP_HOME/db"
-sudo touch "$APP_HOME/app/data.json"
-sudo chown www-data:www-data "$APP_HOME/app/data.json"
 sudo chmod o+x "$APP_HOME"
 sudo chmod 2775 "$APP_HOME/db"         # setgid bit so new files keep group www-data
 sudo chmod 664 "$APP_HOME/db/PiLN.sqlite3"
