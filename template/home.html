@@ -6,31 +6,30 @@
 <h2>Profiles</h2>
 <p><i>Click a profile ID for additional actions</i></p>
 
-<table id="sortable" class="display nowrap table-fixed" style="width:100%">
-  <thead>
-    <tr>
-      <th>State</th>
-      <th>ID</th>
-      <th>Notes</th>
-      <th>Last Run Date</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for profile in profiles %}
-    <tr>
-      <td>{{ profile['state'] }}</td>
-      <td>
-        <a class="piln-btn piln-btn-ghost" href="/view?run_id={{ profile['run_id'] }}&state={{ profile['state'] }}&notes={{ profile['notes']|urlencode }}">
-          {{ profile['run_id'] }}
-        </a>
-      </td>
-      <td>{{ profile['notes'] }}</td>
-      <td>{{ profile['lastdate'] }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-
+	<table id="sortable" class="display nowrap table-fixed" style="width:100%">
+	  <thead>
+		<tr>
+		  <th>State</th>
+		  <th>ID</th>
+		  <th>Notes</th>
+		  <th>Last Run Date</th>
+		</tr>
+	  </thead>
+	  <tbody>
+	  {% for profile in profiles %}
+		<tr>
+		  <td>{{ profile['state'] }}</td>
+		  <td>
+			<a class="piln-btn piln-btn-ghost" href="/view?run_id={{ profile['run_id'] }}&state={{ profile['state'] }}&notes={{ profile['notes']|urlencode }}">
+			  {{ profile['run_id'] }}
+			</a>
+		  </td>
+		  <td>{{ profile['notes'] }}</td>
+		  <td>{{ profile['lastdate'] }}</td>
+		</tr>
+	  {% endfor %}
+	  </tbody>
+	</table>
 <script>
 $(document).ready(function () {
   $('#sortable').DataTable({ "order": [[1,"desc"]] });

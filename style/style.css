@@ -137,3 +137,117 @@ input[type="button"].piln-btn:hover {
 @media only screen and (max-width: 480px) {
   div.dataTables_wrapper { overflow-x: auto; display: block; float: none; }
 }
+
+
+
+/* === Modern touches (add after your current CSS) === */
+
+/* Panels / Cards */
+.card {
+  background: #fff;
+  border: 1px solid var(--steel);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  padding: 16px;
+  margin: 12px 0;
+}
+
+/* Page header row (logo + status + actions) */
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--steel);
+}
+.page-head .spacer { flex: 1; }
+
+/* Status pill */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  border: 1px solid var(--steel);
+  background: #fff;
+  font-size:25px;
+  margin-bottom:15px;
+}
+.pill-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.04) inset;
+}
+.pill--active { border-color: var(--ember); color: var(--ember-hover); }
+.pill--active .pill-dot { background: var(--ember); }
+.pill--idle   { border-color: #8aa1b2; color: #51626f; }
+.pill--idle .pill-dot { background: #8aa1b2; }
+.pill--down   { border-color: var(--brick); color: var(--brick-hover); }
+.pill--down .pill-dot { background: var(--brick); }
+
+/* Buttons: sizes & link-style secondary */
+.piln-btn-sm { padding: 4px 10px; font-size: 13px; border-radius: 6px; }
+.piln-btn-lg { padding: 10px 16px; font-size: 16px; border-radius: 10px; }
+.piln-btn-link {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ember);
+  padding: 0;
+}
+.piln-btn-link:hover { background: transparent; text-decoration: underline; }
+
+/* Tables: sticky header + slightly larger rows */
+.table-sticky thead th { position: sticky; top: 0; z-index: 2; }
+td, th { padding: 10px 12px; }
+
+/* Inputs: full width option for notes etc. */
+.input-full { width: min(680px, 100%); }
+
+/* Subtle hover for action rows/buttons */
+.piln-actions .piln-btn { transition: transform .06s ease, background-color .12s ease; }
+.piln-actions .piln-btn:hover { transform: translateY(-1px); }
+
+/* Focus visibility for accessibility */
+:focus-visible {
+  outline: 3px solid rgba(204,84,0,0.35);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Skeleton shimmer (optional) */
+.skel {
+  display: inline-block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #e9e4de 25%, #f6f2ed 37%, #e9e4de 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.2s infinite linear;
+}
+@keyframes shimmer { 0% {background-position: 100% 0} 100% {background-position: 0 0} }
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  :root{
+    --ink: #e9ecef;
+    --bg: #141516;
+    --ember: #de6b1e;
+    --ember-hover: #c85c15;
+    --brick: #a84433;
+    --brick-hover: #8a382a;
+    --steel: #3a424b;
+    --ash: #202326;
+
+    --btn-bg: var(--ember);
+    --btn-border: var(--ember);
+    --btn-hover-bg: var(--ember-hover);
+    --btn-hover-border: var(--ember-hover);
+    --btn-text: #fff;
+  }
+  body { color: var(--ink); background: var(--bg); }
+  .card { background: #1a1c1e; border-color: var(--steel); box-shadow: none; }
+  td, th { border-color: var(--steel); }
+  th { background: var(--brick); }
+  tr:nth-child(even){ background-color: var(--ash); }
+  .input-text { background: #121314; color: var(--ink); border-color: var(--steel); }
+  .pill { background: #121314; border-color: var(--steel); }
+}

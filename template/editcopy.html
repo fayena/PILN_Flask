@@ -1,67 +1,83 @@
-
 <div class="piln-actions">
-  <a class="piln-btn" href="/home">Home</a>
-  <button type="submit" class="piln-btn">Save to New Profile</button>
-  <a class="piln-btn piln-btn-secondary" href="/view?run_id={{ run_id }}&state={{ state }}&notes={{ profile['notes']|urlencode }}">Cancel</a>
-
+  <a class="piln-btn piln-btn-secondary" href="/view?run_id={{ run_id }}&state={{ state }}&notes={{ notes|urlencode }}">← Back</a>
 </div>
 
-<h2>Edit/Copy Profile</h2>
+<form method="post" class="piln-form">
 
-<!-- Update existing -->
-<form method="post" action="/saveupd" class="mt-2">
-  {% if state == 'Staged' %}
-    <input type="hidden" name="run_id" value="{{ run_id }}">
-    <input type="hidden" name="lastseg" value="{{ lastseg }}">
-    <button type="submit" class="piln-btn">Update Profile</button>
-  {% endif %}
-</form>
+  <!-- Hidden fields shared by both submit actions -->
+  <input type="hidden" name="run_id" value="{{ run_id }}">
+  <input type="hidden" name="lastseg" value="{{ lastseg }}">
 
-<!-- Save as new -->
-<form method="post" action="/savenew" class="mt-2">
-  <div class="form-row">
-    <label for="notes" class="sr-only">Notes</label>
-    <input id="notes" class="input-text" type="text" name="notes" value="{{ profile['notes'] }}" size="60" placeholder="Notes">
-  </div>
-  <div class="form-row">
-    <label for="Kp" class="sr-only">Kp</label>
-    <input id="Kp" class="input-text" type="text" name="Kp" value="{{ profile['p_param'] }}" size="4" placeholder="Kp">
-    <label for="Ki" class="sr-only">Ki</label>
-    <input id="Ki" class="input-text" type="text" name="Ki" value="{{ profile['i_param'] }}" size="4" placeholder="Ki">
-    <label for="Kd" class="sr-only">Kd</label>
-    <input id="Kd" class="input-text" type="text" name="Kd" value="{{ profile['d_param'] }}" size="4" placeholder="Kd">
+  <!-- TOP ACTION BAR -->
+  <div class="piln-actions">
+    {% if state == 'Staged' %}
+      <button type="submit" class="piln-btn" formaction="/saveupd">Update Profile</button>
+    {% endif %}
+    <button type="submit" class="piln-btn" formaction="/savenew">Save to New Profile</button>
+    <a class="piln-btn piln-btn-secondary" href="/view?run_id={{ run_id }}&state={{ state }}&notes={{ notes|urlencode }}">Cancel</a>
   </div>
 
-  <table class="table-fixed table-segments mt-2">
+  <h2>Edit/Copy Profile</h2>
+
+  <!-- Notes + PID row -->
+  <div class="form-row">
+    <label for="notes"><strong>Notes:</strong></label>
+    <input id="notes" name="notes" class="input-text" type="text" value="{{ profile['notes'] }}" size="60">
+  </div>
+
+  <div class="form-row">
+    <strong>PID Settings:</strong>
+    <label for="Kp" class="sr-only">Proportional (Kp)</label>
+    <input id="Kp" name="Kp" class="input-text" type="text" value="{{ profile['p_param'] }}" size="6" placeholder="Kp">
+    <label for="Ki" class="sr-only">Integral (Ki)</label>
+    <input id="Ki" name="Ki" class="input-text" type="text" value="{{ profile['i_param'] }}" size="6" placeholder="Ki">
+    <label for="Kd" class="sr-only">Derivative (Kd)</label>
+    <input id="Kd" name="Kd" class="input-text" type="text" value="{{ profile['d_param'] }}" size="6" placeholder="Kd">
+  </div>
+
+  <!-- Segments table -->
+  <table class="table table-fixed table-segments">
     <thead>
       <tr>
         <th>Segment</th>
-        <th>Target &deg;C</th>
-        <th>Rate(&deg;C/hr)</th>
-        <th>Hold Minutes</th>
-        <th>Interval Seconds</th>
+        <th>Target&nbsp;°C</th>
+        <th>Rate&nbsp;(°C/hr)</th>
+        <th>Hold&nbsp;Minutes</th>
+        <th>Interval&nbsp;Seconds</th>
       </tr>
     </thead>
     <tbody>
-    {% for segment in segments %}
+      {# Existing segments (1..N) — use loop.index so names are 1..N #}
+      {% for segment in segments %}
       <tr>
         <td>{{ loop.index }}</td>
-        <td><input class="input-text" type="text" name="set_temp{{ loop.index }}" value="{{ segment['set_temp'] }}" size="4"></td>
-        <td><input class="input-text" type="text" name="rate{{ loop.index }}" value="{{ segment['rate'] }}" size="4"></td>
-        <td><input class="input-text" type="text" name="hold_min{{ loop.index }}" value="{{ segment['hold_min'] }}" size="4"></td>
-        <td><input class="input-text" type="text" name="int_sec{{ loop.index }}" value="{{ segment['int_sec'] }}" size="4"></td>
+        <td><input class="input-text" type="text" name="set_temp{{ loop.index }}" value="{{ segment['set_temp'] }}" size="6"></td>
+        <td><input class="input-text" type="text" name="rate{{ loop.index }}" value="{{ segment['rate'] }}" size="6"></td>
+        <td><input class="input-text" type="text" name="hold_min{{ loop.index }}" value="{{ segment['hold_min'] }}" size="6"></td>
+        <td><input class="input-text" type="text" name="int_sec{{ loop.index }}" value="{{ segment['int_sec'] }}" size="6"></td>
       </tr>
-    {% endfor %}
-    {% for segment in addsegs %}
+      {% endfor %}
+
+      {# Extra blank rows (N+1..max) — names use the numeric segment variable #}
+      {% for segno in addsegs %}
       <tr>
-        <td>{{ segment }}</td>
-        <td><input class="input-text" type="text" name="set_temp{{ segment }}" size="4"></td>
-        <td><input class="input-text" type="text" name="rate{{ segment }}" size="4"></td>
-        <td><input class="input-text" type="text" name="hold_min{{ segment }}" size="4"></td>
-        <td><input class="input-text" type="text" name="int_sec{{ segment }}" size="4"></td>
+        <td>{{ segno }}</td>
+        <td><input class="input-text" type="text" name="set_temp{{ segno }}" size="6" placeholder="—"></td>
+        <td><input class="input-text" type="text" name="rate{{ segno }}" size="6" placeholder="—"></td>
+        <td><input class="input-text" type="text" name="hold_min{{ segno }}" size="6" placeholder="—"></td>
+        <td><input class="input-text" type="text" name="int_sec{{ segno }}" size="6" placeholder="—"></td>
       </tr>
-    {% endfor %}
+      {% endfor %}
     </tbody>
   </table>
+
+  <!-- BOTTOM ACTION BAR (optional but handy) -->
+  <div class="piln-actions mt-2">
+    {% if state == 'Staged' %}
+      <button type="submit" class="piln-btn" formaction="/saveupd">Update Profile</button>
+    {% endif %}
+    <button type="submit" class="piln-btn" formaction="/savenew">Save to New Profile</button>
+    <a class="piln-btn piln-btn-secondary" href="/view?run_id={{ run_id }}&state={{ state }}&notes={{ notes|urlencode }}">Cancel</a>
+  </div>
+
 </form>
-  

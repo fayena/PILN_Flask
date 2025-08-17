@@ -30,7 +30,9 @@ function buildChart(d){
     },
     options:{
       interaction:{mode:'nearest'},
-      elements:{point:{radius:0}},
+      elements:{point:{radius:0},
+		line:{tension:0.25}
+	},
       animation:{duration:0},
       scales:{
         y1:{type:'linear', position:'left', title:{display:true,text:'Temperature'}},

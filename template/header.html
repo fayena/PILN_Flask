@@ -9,65 +9,98 @@
   <script src="../style/js/jquery-3.6.0.min.js"></script>
   <script src="../style/js/jquery.dataTables.min.js"></script>
 </head>
+
 <body>
   <div class="body">
+  <div class="page-head">	  
     <div class="logo">
       <a href="/home"><img class="logo_img" src="/images/piln.png" alt="PiLN Logo" /></a>
     </div>
     <div class="status">
-      <div id="statusupd1">Updating Status...</div>
-      <div id="statusupd2">&nbsp;</div>
-    </div>
+  <div class="pill pill--idle" id="status-pill">
+    <span class="pill-dot"></span>
+    <span id="status-pill-text">Checking…</span>
+  </div>
 
+  <div id="statusupd1">Updating Status...</div><br>
+  <div id="statusupd2">&nbsp;</div>
+</div>
+</div>
     <script>
-    function loadProcStat(){
-      const RESCHEDULE_MS = 5000;
-      function fmtC(v){ return (v != null && v !== 'n/a') ? (v + '&deg;C') : 'n/a'; }
+function setStatusPill(data){
+  const pill = document.getElementById('status-pill');
+  const text = document.getElementById('status-pill-text');
+  if (!pill || !text) return;
 
-      $.ajax({
-        url: '/api/status',
-        dataType: 'json',
-        cache: false,
-        timeout: 4000
-      })
-      .done(function(data){
-        const running = !!(data && data.daemon && data.daemon.running);
-        const status  = (data && data.status) || 'unknown';
+  const running = !!(data && data.daemon && data.daemon.running);
+  const status  = (data && data.status ? String(data.status) : 'unknown').toLowerCase();
 
-        if (!running || status === 'down') {
-          $('#statusupd1').text('WARNING: Firing process daemon is DOWN');
-          $('#statusupd2').html('&nbsp;');
-          return;
-        }
-        if (status === 'idle' || data.run_profile === 'none') {
-          $('#statusupd1').text('Daemon: IDLE');
-          $('#statusupd2').html(
-            data.readtemp && data.readtemp !== 'n/a'
-              ? '<div class="temp">Temp: ' + fmtC(data.readtemp) + '</div>'
-              : '&nbsp;'
-          );
-          return;
-        }
-        // ACTIVE
-        $('#statusupd1').html(
-          'Daemon: ACTIVE, Run ID: ' + (data.run_profile ?? 'n/a') + ', ' +
-          'Seg ' + (data.run_segment ?? 'n/a') + ', ' +
-          'Stat: ' + status
-        );
-        $('#statusupd2').html(
-          '<div class="temp">Temp: ' + fmtC(data.readtemp) + ', </div>' +
-          'Ramp: ' + fmtC(data.ramptemp) + ', ' +
-          'Target: ' + fmtC(data.targettemp) + ', ' +
-          'SegTime: ' + (data.segtime ?? '0:00:00')
-        );
-      })
-      .fail(function(){
-        $('#statusupd1').text('Status unavailable (retrying…)');
-        $('#statusupd2').html('&nbsp;');
-      })
-      .always(function(){
-        setTimeout(loadProcStat, RESCHEDULE_MS);
-      });
+  let cls = 'pill--idle';
+  let label = 'IDLE';
+
+  if (!running || status === 'down') {
+    cls = 'pill--down'; label = 'DOWN';
+  } else if (status === 'active' && data.run_profile && data.run_profile !== 'none') {
+    cls = 'pill--active'; label = 'ACTIVE';
+  }
+
+  pill.classList.remove('pill--active','pill--idle','pill--down','pill--unknown');
+  pill.classList.add(cls);
+  text.textContent = label;
+}
+
+function loadProcStat(){
+  const RESCHEDULE_MS = 5000;
+  $.ajax({
+    url: '/api/status',
+    dataType: 'json',
+    cache: false,
+    timeout: 4000
+  })
+  .done(function(data){
+    // Update the pill first
+    setStatusPill(data);
+
+    const running = !!(data && data.daemon && data.daemon.running);
+    const status  = (data && data.status) || 'unknown';
+
+    if (!running || status === 'down') {
+      //$('#statusupd1').text('WARNING: Firing process daemon is DOWN');
+      $('#statusupd2').html('&nbsp;');
+      return;
     }
-    $(document).ready(loadProcStat);
-    </script>
+
+    if (status === 'idle' || data.run_profile === 'none') {
+      //$('#statusupd1').text('Daemon: IDLE');
+      if (data.readtemp && data.readtemp !== 'n/a') {
+        $('#statusupd2').html('<div class="temp">Temp: ' + data.readtemp + '&deg;C</div>');
+      } else {
+        $('#statusupd2').html('&nbsp;');
+      }
+      return;
+    }
+
+    // ACTIVE
+    $('#statusupd1').html(
+      'Run ID: ' + (data.run_profile ?? 'n/a') + ', ' +
+      'Seg ' + (data.run_segment ?? 'n/a') + ', ' +
+      'Stat: ' + status
+    );
+    $('#statusupd2').html(
+      '<div class="temp">Temp: ' + (data.readtemp ?? 'n/a') + '&deg;C, </div>' +
+      'Ramp: ' + (data.ramptemp ?? 'n/a') + '&deg;C, ' +
+      'Target: ' + (data.targettemp ?? 'n/a') + '&deg;C, ' +
+      'SegTime: ' + (data.segtime ?? '0:00:00')
+    );
+  })
+  .fail(function(){
+    $('#statusupd1').text('Status unavailable (retrying…)');
+    $('#statusupd2').html('&nbsp;');
+  })
+  .always(function(){
+    setTimeout(loadProcStat, RESCHEDULE_MS);
+  });
+}
+
+$(document).ready(loadProcStat);
+</script>

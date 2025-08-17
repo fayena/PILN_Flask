@@ -10,7 +10,13 @@
 {% if message %}<p>{{ message }}</p>{% endif %}
 
 <h2>Segments for {{ state }} Profile {{ run_id }}</h2>
-<p class="mb-2">{{ notes }}</p>
+<form class="form-inline mt-2" method="post" action="/notes_save">
+  <input type="hidden" name="run_id" value="{{ run_id }}">
+  <input type="hidden" name="state"  value="{{ state }}">
+  <label for="notes" class="sr-only">Notes</label>
+  <input class="input-text" id="notes" type="text" name="notes" value="{{ notes }}" size="45">
+  <button type="submit" class="piln-btn piln-btn-secondary">Update Notes</button>
+</form>
 
 <table class="table-fixed table-segments mt-2">
   <thead>
