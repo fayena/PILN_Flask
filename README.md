@@ -1,5 +1,4 @@
 
-````markdown
 # PiLN Flask – Raspberry Pi Kiln Controller
 
 > **UPDATE (2025-08-16):** Major refresh. The app now runs on **Flask + Gunicorn**, fronted by **nginx**, with a cleaner UI, faster charts, and a proper JSON API.  
@@ -50,11 +49,11 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
 
 ## Hardware
 
-- Raspberry Pi (Pi 4 used here; others work)
+- Raspberry Pi Zero 2 W 
 - MAX31856 thermocouple amplifier (SPI)
-- Type-K thermocouple + high-temp thermocouple wire
+- Type-K or Type-S thermocouple + high-temp thermocouple wire
 - Two high-current relays/SSRs (rated for your load), 12 V coil supply or SSR control
-- ULN2803A / driver (if driving relays), fan, DIN rails, enclosure, terminals, etc.
+
 
 > Use parts correctly rated for amperage and temperature.
 
