@@ -41,14 +41,11 @@ HEAT_PINS = (5, 6)          # Same as original
 MAX_TEMP_C = 1330.0           # sanity bound (like original guard)
 MIN_VALID_TEMP_C = 0.1
 DEBUG_SIM = True            # set True to simulate heating (like original Debug mode)
-AUTOTUNE_ON_START = False     # set True to run relay autotune at the start of each run
+AUTOTUNE_ON_START = True     # set True to run relay autotune at the start of each run
 AUTOTUNE_NOISE_BAND = 2.0     # deg C around setpoint for relay toggling
 AUTOTUNE_MAX_SECONDS = 90 * 60
 AUTOTUNE_MIN_HALF_CYCLES = 6  # ~3 cycles recommended
 THERMOCOUPLE = "S"
-
-
-SIMULATE_TC = os.getenv("SIMULATE_TC", "false").strip().lower() in ("1","true","yes","on")
 
 # -------------------
 # Logging
@@ -594,7 +591,7 @@ class KilnController:
                     else:
                         self.hardware.heat_on()
                         if DEBUG_SIM:
-                            self.sim_temp += (cycle_on_sec * 5.0)
+                            self.sim_temp += (cycle_on_sec * 1.0)
                         time.sleep(cycle_on_sec)
 
                 if out < 100.0:
@@ -701,8 +698,6 @@ class KilnController:
                     state = self.fire_segment(run_id, seg, target, rate, hold_min, window, kp, ki, kd)
                     run_state_final = state
 
-                    # ensure elements OFF between segments
-                    self.hardware.heat_off()
 
                     # mark segment end
                     try:

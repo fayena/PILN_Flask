@@ -23,7 +23,7 @@
     <span id="status-pill-text">Checking…</span>
   </div>
 
-  <div id="statusupd1">Updating Status...</div><br>
+  <div id="statusupd1"> </div><br>
   <div id="statusupd2">&nbsp;</div>
 </div>
 </div>
@@ -41,9 +41,9 @@ function setStatusPill(data){
   let label = 'IDLE';
 
   if (!running || status === 'down') {
-    cls = 'pill--down'; label = 'DOWN';
+    cls = 'pill--down'; label = 'Daemon is DOWN!';
   } else if (status === 'active' && data.run_profile && data.run_profile !== 'none') {
-    cls = 'pill--active'; label = 'ACTIVE';
+    cls = 'pill--active'; label = 'RUNNING';
   }
 
   pill.classList.remove('pill--active','pill--idle','pill--down','pill--unknown');

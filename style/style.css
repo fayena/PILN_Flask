@@ -67,7 +67,10 @@ td, th { border: 1px solid var(--steel); padding: 6px 8px; vertical-align: top; 
 th { background-color: var(--brick); color: #fff; padding-top: 6px; padding-bottom: 6px; }
 tr:nth-child(even){ background-color: var(--ash); }
 td { overflow: hidden; text-overflow: ellipsis; word-wrap: break-word; }
-.table-fixed { width: 100%; }
+.table-fixed { 
+  width: 100%; 
+  table-layout:auto;	
+}
 .table-segments th:nth-child(1) { width: 60px; }
 .table-segments th:nth-child(2) { width: 140px; }
 .table-segments th:nth-child(3) { width: 120px; }
@@ -128,6 +131,7 @@ input[type="button"].piln-btn:hover {
   font-size: 14px;
   background: #fff;
   color: var(--ink);
+  width:90%
 }
 .input-text:focus { outline: none; border-color: var(--ember); box-shadow: 0 0 0 3px rgba(204,84,0,0.2); }
 
@@ -137,24 +141,22 @@ input[type="button"].piln-btn:hover {
 
 .clear { clear: both; }
 
-/* ========== Small screens ========== */
-@media only screen and (max-width: 480px) {
-  div.dataTables_wrapper { overflow-x: auto; display: block; float: none; }
-}
-@media only screen and (max-width: 640px) {
-  .page-head {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 10px;
-  }
-  .status { 
-    text-align: center; 
-    width: 100%;
-  }
+
+/* Chart container fixes Chart.js auto-resize issues */
+.chart-wrap {
+  position: relative;
+  height: 360px;        /* pick your desired chart height */
+  max-width: 100%;
 }
 
+/* Ensure canvas fills the wrapper and doesn't auto-collapse */
+.chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
 
+.cone_chart {padding:10px}
 
 /* === Modern touches (add after your current CSS) === */
 
@@ -270,3 +272,23 @@ td, th { padding: 10px 12px; }
   .input-text { background: #121314; color: var(--ink); border-color: var(--steel); }
   .pill { background: #121314; border-color: var(--steel); }
 }
+
+/* ========== Small screens ========== */
+@media only screen and (max-width: 480px) {
+  div.dataTables_wrapper { overflow-x: auto; display: block; float: none; }
+}
+@media only screen and (max-width: 640px) {
+  .page-head {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+  }
+  .status { 
+    text-align: center; 
+    width: 100%;
+  }
+  td, th { padding: 1%; 
+  word-wrap:anywhere;}
+}
+  .input-text {padding:6px 3px}
