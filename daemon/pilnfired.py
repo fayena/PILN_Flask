@@ -20,6 +20,7 @@ import math
 import logging
 import sqlite3
 import sys
+import json
 from typing import Optional, Tuple, List, Dict
 
 import RPi.GPIO as GPIO
@@ -32,6 +33,7 @@ import adafruit_max31856
 # Hardcoded paths (kept the same)
 # -------------------
 AppDir = '/home/pi/PILN'
+StatFile = '/home/pi/PILN/app/pilnstat.json'
 SQLDB = '/home/pi/PILN/db/PiLN.sqlite3'
 
 # -------------------
@@ -40,14 +42,14 @@ SQLDB = '/home/pi/PILN/db/PiLN.sqlite3'
 HEAT_PINS = (5, 6)          # Same as original
 MAX_TEMP_C = 1330.0           # sanity bound (like original guard)
 MIN_VALID_TEMP_C = 0.1
-DEBUG_SIM = True             # set True to simulate heating (like original Debug mode)
-#AUTOTUNE_ON_START does not work if debugging is enabled.    
-AUTOTUNE_ON_START = True     # set True to run relay autotune at the start of each run
+DEBUG_SIM = False             # set True to simulate heating (like original Debug mode)
+AUTOTUNE_ON_START = False     # Does not work! do not turn on!  set True to run relay autotune at the start of each run
 AUTOTUNE_NOISE_BAND = 2.0     # deg C around setpoint for relay toggling
 AUTOTUNE_MAX_SECONDS = 90 * 60
 AUTOTUNE_MIN_HALF_CYCLES = 6  # ~3 cycles recommended
 THERMOCOUPLE = "S"
 
+SIMULATE_TC = os.getenv("SIMULATE_TC", "false").strip().lower() in ("1","true","yes","on")
 
 # -------------------
 # Logging
@@ -377,7 +379,6 @@ class KilnController:
 
         # for Debug sim
         self.sim_temp = 20.0
-        self._sim_last_reset_run = None   # track which run we last reset for
 
         # cleanup on signals
         for sig in (SIGABRT, SIGINT, SIGTERM):
@@ -403,11 +404,21 @@ class KilnController:
         else:
             return self.tc_reader.read_temperature()
 
-     # ---- status writer (disabled; UI reads DB via /api/status) ----
+    # ---- status JSON (same format as original) ----
     def write_status(self, readtemp, run_id, seg, ramptemp, targettemp, status, segtime):
-        # Intentionally no-op: status is derived from the DB by /api/status
-        # Keeping the method avoids refactors at call sites.
-        return
+        os.makedirs(os.path.dirname(StatFile), exist_ok=True)
+        payload = {
+            "proc_update_utime": str(int(time.time())),
+            "readtemp": str(int(readtemp)) if not math.isnan(readtemp) else "0",
+            "run_profile": str(run_id) if run_id is not None else "none",
+            "run_segment": str(seg) if seg is not None else "n/a",
+            "ramptemp": str(int(ramptemp)) if ramptemp is not None else "n/a",
+            "targettemp": str(int(targettemp)) if targettemp is not None else "n/a",
+            "status": str(status),
+            "segtime": str(segtime),
+        }
+        with open(StatFile, "w") as f:
+            json.dump(payload, f, indent=2)
 
     # ---- DB helpers (same schema assumptions) ----
     def set_profile_start(self, run_id: int):
@@ -438,15 +449,10 @@ class KilnController:
         )
         self.sql.commit()
 
-
-    # in KilnController.maybe_autotune(...)
-    def maybe_autotune(self, run_id: int, setpoint: float):
+    # ---- relay autotune (optional) ----
+    def maybe_autotune(self, run_id: int, setpoint: float) -> Tuple[float, float, float]:
         if not AUTOTUNE_ON_START:
             return None
-        if DEBUG_SIM:
-            L.info("[AUTOTUNE] Skipping autotune in DEBUG_SIM mode")
-            return None
-
         L.info(f"Starting AUTOTUNE for RunID {run_id} at SP={setpoint:.1f}")
         tuner = RelayAutotune(
             setpoint=setpoint,
@@ -456,42 +462,12 @@ class KilnController:
             max_seconds=AUTOTUNE_MAX_SECONDS,
             min_half_cycles=AUTOTUNE_MIN_HALF_CYCLES
         )
-
-        # (optional) mark status while tuning so UI doesn’t look stuck
-        try:
-            t_now = self.read_temp()[0] if not DEBUG_SIM else getattr(self, "sim_temp", 20.0)
-        except Exception:
-            t_now = 0.0
-        self.write_status(t_now, run_id, 0, setpoint, setpoint, "Autotuning", "0:00:00")
-
         kp, ki, kd = tuner.run()
-
-        self.write_status(t_now, run_id, 0, setpoint, setpoint, "Autotune complete", "0:00:00")
-        self.cur.execute(
-            "UPDATE profiles SET p_param=?, i_param=?, d_param=? WHERE run_id=?;",
-            (kp, ki, kd, run_id)
-        )
+        L.info(f"AUTOTUNE gains TL: Kp={kp:.5f} Ki={ki:.5f} Kd={kd:.5f}")
+        # store to profiles table (p_param/i_param/d_param)
+        self.cur.execute("UPDATE profiles SET p_param=?, i_param=?, d_param=? WHERE run_id=?;", (kp, ki, kd, run_id))
         self.sql.commit()
         return kp, ki, kd
-        
-        
-        # ~ if not AUTOTUNE_ON_START:
-            # ~ return None
-        # ~ L.info(f"Starting AUTOTUNE for RunID {run_id} at SP={setpoint:.1f}")
-        # ~ tuner = RelayAutotune(
-            # ~ setpoint=setpoint,
-            # ~ read_pv=lambda: self.read_temp()[0],
-            # ~ write_out=self.hardware.write_output_percent,
-            # ~ noiseband=AUTOTUNE_NOISE_BAND,
-            # ~ max_seconds=AUTOTUNE_MAX_SECONDS,
-            # ~ min_half_cycles=AUTOTUNE_MIN_HALF_CYCLES
-        # ~ )
-        # ~ kp, ki, kd = tuner.run()
-        # ~ L.info(f"AUTOTUNE gains TL: Kp={kp:.5f} Ki={ki:.5f} Kd={kd:.5f}")
-        # ~ # store to profiles table (p_param/i_param/d_param)
-        # ~ self.cur.execute("UPDATE profiles SET p_param=?, i_param=?, d_param=? WHERE run_id=?;", (kp, ki, kd, run_id))
-        # ~ self.sql.commit()
-        # ~ return kp, ki, kd
 
     # ---- main segment firing loop (refactor of Fire()) ----
     def fire_segment(self, run_id: int, seg: int, target_tmp: float, rate: float,
@@ -540,6 +516,9 @@ class KilnController:
 
                 # fresh reading
                 if DEBUG_SIM:
+                    # crude sim: drift toward target by prior output
+                    pass
+                else:
                     try:
                         read_tmp, int_tmp = self.read_temp()
                     except ThermocoupleError:
@@ -628,13 +607,16 @@ class KilnController:
                     else:
                         self.hardware.heat_on()
                         if DEBUG_SIM:
-                            self.sim_temp += (cycle_on_sec * 1)
+                            self.sim_temp += (cycle_on_sec * 5.0)
                         time.sleep(cycle_on_sec)
 
                 if out < 100.0:
                     self.hardware.heat_off()
                     if DEBUG_SIM:
                         self.sim_temp -= 2.0
+
+                # status file
+                self.write_status(read_tmp, run_id, seg, ramp_tmp, target_tmp, run_state, rem_time)
 
                 # Firing row
                 try:
@@ -667,6 +649,7 @@ class KilnController:
                 read_tmp, _ = self.read_temp()
             except ThermocoupleError:
                 read_tmp = float('nan')
+            self.write_status(read_tmp, None, None, None, None, "n/a", "0:00:00")
 
             # find running profile
             self.cur.execute("SELECT * FROM profiles WHERE state=?;", ('Running',))
@@ -677,12 +660,6 @@ class KilnController:
                 kp = float(data[0]['p_param'])
                 ki = float(data[0]['i_param'])
                 kd = float(data[0]['d_param'])
-				
-				# reset sim temp once per run id
-                if DEBUG_SIM and self._sim_last_reset_run != run_id:
-                    self.sim_temp = 20  # or just 20.
-                    self._sim_last_reset_run = run_id
-                    L.info(f"[SIM] Reset sim_temp to {self.sim_temp:.1f}°C for new run {run_id}")
 
                 # per-run logger
                 configure_run_logger(run_id)
@@ -736,7 +713,6 @@ class KilnController:
                     # execute segment
                     state = self.fire_segment(run_id, seg, target, rate, hold_min, window, kp, ki, kd)
                     run_state_final = state
-
 
                     # mark segment end
                     try:
