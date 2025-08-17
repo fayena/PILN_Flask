@@ -591,7 +591,7 @@ class KilnController:
                     else:
                         self.hardware.heat_on()
                         if DEBUG_SIM:
-                            self.sim_temp += (cycle_on_sec * 1.0)
+                            self.sim_temp += (cycle_on_sec * .1)
                         time.sleep(cycle_on_sec)
 
                 if out < 100.0:
