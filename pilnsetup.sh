@@ -126,7 +126,9 @@ else
     psutil \
     Jinja2 \
     Flask \
-    gunicorn
+    gunicorn \
+    numpy \
+    scipy
 fi
 deactivate
 

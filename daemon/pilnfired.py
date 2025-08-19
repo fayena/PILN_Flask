@@ -1,64 +1,65 @@
 #!/usr/bin/env python3
-# pilnfired_refactored.py
-#
-# Drop-in refactor of the original pilnfired.py:
-# - Same hardcoded paths, GPIO pins, DB layout, and status file.
-# - Class-based design (PID, Hardware, Thermocouple, KilnController).
-# - Progressive thermocouple error recovery: soft-retry -> reinit -> full reinit -> fail-safe (no reboot).
-# - Optional relay/Åström–Hägglund PID autotune (set AUTOTUNE_ON_START=True to enable).
-#
-# Notes:
-# - Keeps time-proportioning window logic from the original.
-# - Writes per-RUN_ID logs in AppDir/log like before.
-# - Uses adafruit_max31856 via Blinka (same as original).
-# - Designed to "work as is" with your existing SQLite schema.
+# pilnfired_refactored.py (online FOPDT adjust, no relay autotune)
 
 from signal import signal, SIGABRT, SIGINT, SIGTERM
-import os
-import time
-import math
-import logging
-import sqlite3
-import sys
-import json
-from typing import Optional, Tuple, List, Dict
+import os, time, math, logging, sqlite3, sys
+from typing import Optional, Tuple, List
+from datetime import datetime
 
 import RPi.GPIO as GPIO
-import board
-import busio
-import digitalio
+import board, busio, digitalio
 import adafruit_max31856
 
+# ----- SciPy (optional) -----
+try:
+    from scipy.optimize import curve_fit
+    _SCIPY_OK = True
+except Exception:
+    _SCIPY_OK = False
+
+# numpy (used by adapter)
+import numpy as np
+
 # -------------------
-# Hardcoded paths (kept the same)
+# Hardcoded paths
 # -------------------
-AppDir = '/home/pi/PILN'
-StatFile = '/home/pi/PILN/app/pilnstat.json'
-SQLDB = '/home/pi/PILN/db/PiLN.sqlite3'
+AppDir   = '/home/pi/PILN'
+SQLDB    = '/home/pi/PILN/db/PiLN.sqlite3'
 
 # -------------------
 # Constants / Options
 # -------------------
-HEAT_PINS = (5, 6)          # Same as original
-MAX_TEMP_C = 1330.0           # sanity bound (like original guard)
+HEAT_PINS = (5, 6)
+MAX_TEMP_C = 1330.0
 MIN_VALID_TEMP_C = 0.1
-DEBUG_SIM = False             # set True to simulate heating (like original Debug mode)
-AUTOTUNE_ON_START = False     # Does not work! do not turn on!  set True to run relay autotune at the start of each run
-AUTOTUNE_NOISE_BAND = 2.0     # deg C around setpoint for relay toggling
-AUTOTUNE_MAX_SECONDS = 90 * 60
-AUTOTUNE_MIN_HALF_CYCLES = 6  # ~3 cycles recommended
-THERMOCOUPLE = "S"
+DEBUG_SIM = True
 
-SIMULATE_TC = os.getenv("SIMULATE_TC", "false").strip().lower() in ("1","true","yes","on")
+# --- PID defaults ---
+DEFAULT_KP = 20.0
+DEFAULT_KI = 0.2
+DEFAULT_KD = 0.2
+
+# Online FOPDT adjuster (ON/OFF)
+ONLINE_FOPDT_ADAPT     = True     # <- master switch (set False to disable all adjustment)
+ERROR_C_FOR_ADAPT      = 5.0      # ramp error threshold (°C) to attempt an adjust
+ADAPT_MIN_STEP         = 0.10     # >= 10% duty step between windows required
+ADAPT_FIT_SECONDS      = 30*60    # fit last 30 minutes around the step window
+ADAPT_LAMBDA_FACTOR    = 1.0      # SIMC lambda factor
+ADAPT_MAX_GAIN_BLEND   = 0.25     # blend factor (new = old*(1-a) + suggested*a)
+ADAPT_KP_BOUNDS        = (0.01, 200.0)
+ADAPT_KI_BOUNDS        = (0.0,  50.0)   # per-window Ki bounds (note: Ki here is per call)
+ADAPT_KD_BOUNDS        = (0.0, 200.0)   # we keep Kd unchanged by default
+
+SAMPLE_QUIET_MS = 150
+THERMOCOUPLE = "S"
 
 # -------------------
 # Logging
 # -------------------
 L = logging.getLogger("kiln")
-L.setLevel(logging.DEBUG)  # handlers configured per-run
+L.setLevel(logging.DEBUG)
 
 def configure_run_logger(run_id: Optional[int]):
-    """Per-run log file like original: AppDir/log/RunID_<id>_Fired.log"""
     for h in L.handlers[:]:
         L.removeHandler(h)
     os.makedirs(os.path.join(AppDir, "log"), exist_ok=True)
@@ -71,32 +72,57 @@ def configure_run_logger(run_id: Optional[int]):
     L.addHandler(fh)
 
 
+#checks to see if pid constants are 0 and if so uses defaults
+def _fallback_pid(kp, ki, kd):
+    """Return (kp, ki, kd) with per-parameter fallback if value is None/NaN/0."""
+    def _nz(v, dflt):
+        try:
+            if v is None: return dflt
+            v = float(v)
+            if math.isnan(v) or abs(v) < 1e-12:  # treat 0 (or near) as unset
+                return dflt
+            return v
+        except Exception:
+            return dflt
+    used = []
+    new_kp = _nz(kp, DEFAULT_KP);  used += (["Kp"] if (new_kp != kp) else [])
+    new_ki = _nz(ki, DEFAULT_KI);  used += (["Ki"] if (new_ki != ki) else [])
+    new_kd = _nz(kd, DEFAULT_KD);  used += (["Kd"] if (new_kd != kd) else [])
+    if used:
+        L.info(f"PID fallback for: {', '.join(used)}  -> Kp={new_kp}, Ki={new_ki}, Kd={new_kd}")
+    return new_kp, new_ki, new_kd
+
 # -------------------
-# Hardware Abstraction
+# Hardware
 # -------------------
 class KilnHardware:
-    """Owns relay GPIO and provides helpers to turn heat on/off."""
     def __init__(self, pins: Tuple[int, int] = HEAT_PINS):
         self.pins = pins
+        self.last_cmd_on = False
         GPIO.setmode(GPIO.BCM)
         for p in self.pins:
             GPIO.setup(p, GPIO.OUT)
-            GPIO.output(p, GPIO.LOW)  # fail safe off
+            GPIO.output(p, GPIO.LOW)
 
     def heat_on(self):
         for p in self.pins:
             GPIO.output(p, GPIO.HIGH)
+        self.last_cmd_on = True
 
     def heat_off(self):
         for p in self.pins:
             GPIO.output(p, GPIO.LOW)
+        self.last_cmd_on = False
 
     def write_output_percent(self, pct: float):
-        """For autotune relaying: >=50% => ON; else OFF."""
-        if pct >= 50.0:
+        self.heat_on() if pct >= 50.0 else self.heat_off()
+
+    def pause_for_sample(self, quiet_ms: int = SAMPLE_QUIET_MS):
+        prev = self.last_cmd_on
+        self.heat_off()
+        time.sleep(quiet_ms / 1000.0)
+        if prev:
             self.heat_on()
-        else:
-            self.heat_off()
 
     def cleanup(self):
         try:
@@ -104,15 +130,14 @@ class KilnHardware:
         finally:
             GPIO.cleanup()
 
-
 # -------------------
-# Thermocouple Reader with Progressive Recovery
+# Thermocouple
 # -------------------
 class ThermocoupleError(Exception):
     pass
 
 class ThermocoupleReader:
-    """Reads MAX31856 with progressive recovery and 'relays off before read' to reduce EMI."""
+    """Reads MAX31856 with progressive recovery and brief 'quiet' sampling to reduce EMI."""
     def __init__(self, hardware: KilnHardware,
                  soft_retries=3, reinit_attempts=2, hwreset_attempts=1, read_delay=0.2):
         self.hardware = hardware
@@ -123,15 +148,12 @@ class ThermocoupleReader:
         self._init_sensor()
 
     def _init_sensor(self):
-        self.spi = busio.SPI(board.SCK, board.MOSI, board.MISO)  # same wiring as before
-        self.cs = digitalio.DigitalInOut(board.D0)               # your CS pin
+        self.spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
+        self.cs = digitalio.DigitalInOut(board.D0)   # CS on D0 per your wiring
         self.cs.direction = digitalio.Direction.OUTPUT
-        th = getattr(adafruit_max31856.ThermocoupleType, str(THERMOCOUPLE).upper(), adafruit_max31856.ThermocoupleType.S)
-        self.tc = adafruit_max31856.MAX31856(
-            self.spi,
-            self.cs,
-            thermocouple_type=th
-        )
+        th = getattr(adafruit_max31856.ThermocoupleType, THERMOCOUPLE.upper(),
+                     adafruit_max31856.ThermocoupleType.S)
+        self.tc = adafruit_max31856.MAX31856(self.spi, self.cs, thermocouple_type=th)
 
     def _full_reinit(self):
         try:
@@ -145,27 +167,30 @@ class ThermocoupleReader:
         return (t is not None) and (not math.isnan(t)) and (MIN_VALID_TEMP_C <= t <= MAX_TEMP_C)
 
     def _read_once(self) -> float:
-        # turn relays off before reading to reduce coupling
+        # Quiet sample
         try:
-            self.hardware.heat_off()
+            self.hardware.pause_for_sample(SAMPLE_QUIET_MS)
         except Exception:
-            pass
+            prev = getattr(self.hardware, "last_cmd_on", False)
+            try:
+                self.hardware.heat_off()
+                time.sleep(SAMPLE_QUIET_MS / 1000.0)
+            finally:
+                if prev:
+                    self.hardware.heat_on()
+
         t = float(self.tc.temperature)
         try:
             faults = self.tc.fault
-            if isinstance(faults, int):
-                if faults:
-                    L.warning("Thermocouple fault bitmask: 0x%02X", faults)
+            if isinstance(faults, int) and faults:
+                L.warning("Thermocouple fault bitmask: 0x%02X", faults)
             elif isinstance(faults, dict) and any(faults.values()):
                 L.warning("Thermocouple fault flags: %s", faults)
         except Exception:
             pass
-
         return t
 
     def read_temperature(self) -> Tuple[float, float]:
-        """Returns (temp, internal_reference_temp). Raises on failure fail-safe (no reboot).."""
-        # --- soft retries ---
         for i in range(self.soft_retries):
             try:
                 t = self._read_once()
@@ -176,7 +201,6 @@ class ThermocoupleReader:
                 L.debug(f"Soft retry {i+1} exception {e}")
             time.sleep(self.read_delay)
 
-        # --- reinit object ---
         for i in range(self.reinit_attempts):
             try:
                 L.warning("Reinitializing MAX31856 object…")
@@ -188,7 +212,6 @@ class ThermocoupleReader:
                 L.debug(f"Reinit {i+1} exception {e}")
             time.sleep(self.read_delay)
 
-        # --- full hardware reinit ---
         for i in range(self.hwreset_attempts):
             try:
                 L.warning("Full hardware reinit for thermocouple/SPI…")
@@ -200,7 +223,6 @@ class ThermocoupleReader:
                 L.debug(f"HW reset {i+1} exception {e}")
             time.sleep(self.read_delay)
 
-        # --- last resort: fail-safe (no reboot). (match original behavior) ---
         L.error("Thermocouple permanently failed; failing safe. Relays OFF.")
         try:
             self.hardware.heat_off()
@@ -209,10 +231,10 @@ class ThermocoupleReader:
         raise ThermocoupleError("MAX31856 read failed after recovery attempts")
 
 # -------------------
-# PID Controller (time-proportioning output)
+# PID Controller
 # -------------------
 class PIDController:
-    """Drop-in replacement for Update(), with clamping and simple anti-windup."""
+    """Time-proportioning PID; Ki is per-call (per window); no explicit dt."""
     def __init__(self, kp: float, ki: float, kd: float, i_min: float, i_max: float):
         self.kp = kp
         self.ki = ki
@@ -225,19 +247,15 @@ class PIDController:
     def compute(self, setpoint: float, pv: float) -> float:
         err = setpoint - pv
         self._i_term += self.ki * err
-        # clamp I
         if self._i_term > self.i_max: self._i_term = self.i_max
         if self._i_term < self.i_min: self._i_term = self.i_min
         d_input = pv - self._last_proc
         out = self.kp * err + self._i_term - self.kd * d_input
-        # output clamp to [i_min, i_max] percent-like range
         if out > self.i_max: out = self.i_max
         if out < self.i_min: out = self.i_min
-        # safety: like original "Err > 200 => Output 200" (force 'error' condition)
         if err > 200:
             out = 200.0
         self._last_proc = pv
-
         L.debug(f"PID compute -> err={err:.2f} I={self._i_term:.2f} dIn={d_input:.2f} out={out:.2f}")
         return out
 
@@ -245,126 +263,153 @@ class PIDController:
         self._i_term = 0.0
         self._last_proc = 0.0
 
-
 # -------------------
-# Relay Autotune (Åström–Hägglund)
+# Online FOPDT Adapter (once per window)
 # -------------------
-class RelayAutotune:
+def _fopdt_step_rel(t, K, tau, theta, dU):
+    t = np.asarray(t, dtype=float)
+    y = np.zeros_like(t, dtype=float)
+    tau = max(float(tau), 1e-6)
+    idx = t > theta
+    y[idx] = K * dU * (1.0 - np.exp(-(t[idx] - theta) / tau))
+    return y
+
+def _fit_fopdt_unit_step(t_rel, y_rel, dU):
+    # local import to avoid hard dependency if SciPy missing at import time
+    from scipy.optimize import curve_fit as _cf
+    import numpy as _np
+    m = _np.isfinite(t_rel) & _np.isfinite(y_rel)
+    t_rel = _np.asarray(t_rel)[m]; y_rel = _np.asarray(y_rel)[m]
+    ord_ = _np.argsort(t_rel); t_rel = t_rel[ord_]; y_rel = y_rel[ord_]
+    keep = _np.insert(_np.diff(t_rel) > 0, 0, True)
+    t_rel = t_rel[keep]; y_rel = y_rel[keep]
+    if t_rel.size < 8:
+        raise RuntimeError("Too few points for FOPDT fit")
+    if abs(dU) < 1e-6:
+        raise RuntimeError("No effective input step (dU≈0)")
+
+    y_end = float(y_rel[-1]); K0 = y_end / dU
+    tau0 = max(60.0, (t_rel[-1] - t_rel[0]) / 3.0)
+    theta0 = max(0.0, _np.median(_np.diff(t_rel)))
+    K_lo, K_hi = -1e4, 1e4
+    tau_lo, tau_hi = 1.0, 1e6
+    th_lo, th_hi = 0.0, 7200.0
+
+    def clamp(v, lo, hi):
+        if not _np.isfinite(v): return 0.5*(lo+hi)
+        return min(max(v, lo + 1e-9), hi - 1e-9)
+
+    p0 = [clamp(K0, K_lo, K_hi), clamp(tau0, tau_lo, tau_hi), clamp(theta0, th_lo, th_hi)]
+    bounds = ([K_lo, tau_lo, th_lo], [K_hi, tau_hi, th_hi])
+
+    def model_wrapped(t, K, tau, theta):
+        return _fopdt_step_rel(t, K, tau, theta, dU)
+
+    popt, _ = _cf(model_wrapped, t_rel, y_rel, p0=p0, bounds=bounds, maxfev=20000)
+    K, tau, theta = map(float, popt)
+    return K, tau, theta
+
+def _simc_pi_from_fopdt(K, tau, theta, lambda_factor=1.0):
+    lam = max(theta, lambda_factor * tau)
+    if abs(K) < 1e-9:
+        raise RuntimeError("Process gain ~ 0; cannot compute PI")
+    Kp = tau / (K * (lam + theta))
+    Ti = min(tau, 4.0 * (lam + theta))
+    Ki_sec = Kp / max(Ti, 1e-6)     # per second
+    return Kp, Ki_sec, lam
+
+class OnlineFOPDTAdapter:
     """
-    Minimal relay autotune used only when AUTOTUNE_ON_START=True.
-    Forces on/off around setpoint; measures oscillation to estimate Ku, Tu.
-    Produces Tyreus–Luyben gains (gentler for thermal).
+    Stores one sample per window and (optionally) adjusts Kp/Ki for next window.
+    - Triggers only if |ramp - temp| >= ERROR_C_FOR_ADAPT AND |Δduty| >= ADAPT_MIN_STEP.
+    - Uses last ADAPT_FIT_SECONDS around the detected step.
+    - Blended, clamped Kp/Ki; leaves Kd unchanged.
     """
-    def __init__(self, setpoint: float, read_pv, write_out, noiseband=2.0,
-                 max_seconds=AUTOTUNE_MAX_SECONDS, min_half_cycles=AUTOTUNE_MIN_HALF_CYCLES):
-        self.SP = float(setpoint)
-        self.read_pv = read_pv
-        self.write_out = write_out
-        self.band = float(noiseband)
-        self.max_seconds = int(max_seconds)
-        self.min_half_cycles = int(min_half_cycles)
-        self._start = time.time()
-        self._state_high = True
-        self._extrema: List[Dict] = []  # {"ts":..., "pv":..., "type":"max"/"min"}
-        self._extreme_pv = None
+    def __init__(self, window_sec: int):
+        self.window = int(max(1, window_sec))
+        self.t: List[float] = []
+        self.y: List[float] = []
+        self.ramp: List[float] = []
+        self.u: List[float] = []   # 0..1 duty
 
-        # start heating
-        self.write_out(100.0)
-        L.info(f"[AUTOTUNE] start SP={self.SP:.1f}, band±{self.band:.1f}")
+        if not _SCIPY_OK and ONLINE_FOPDT_ADAPT:
+            L.warning("SciPy not available; ONLINE_FOPDT_ADAPT will be ignored.")
 
-    def _switch_if_needed(self, pv: float) -> bool:
-        if self._state_high and pv >= (self.SP + self.band):
-            self._state_high = False
-            self.write_out(0.0)
-            self._record_extreme("max")
-            L.info(f"[AUTOTUNE] switch->LOW pv={pv:.2f}")
-            return True
-        if (not self._state_high) and pv <= (self.SP - self.band):
-            self._state_high = True
-            self.write_out(100.0)
-            self._record_extreme("min")
-            L.info(f"[AUTOTUNE] switch->HIGH pv={pv:.2f}")
-            return True
-        return False
+    def add_sample(self, ts: float, pv: float, ramp_temp: float, duty_pct: float):
+        self.t.append(float(ts))
+        self.y.append(float(pv))
+        self.ramp.append(float(ramp_temp))
+        self.u.append(max(0.0, min(1.0, float(duty_pct)/100.0)))
 
-    def _record_extreme(self, typ: str):
-        if self._extreme_pv is not None:
-            self._extrema.append({"ts": time.time(), "pv": self._extreme_pv, "type": typ})
-            self._extreme_pv = None
+        # house-keep: keep only last 6 hours to bound memory
+        cutoff = ts - 6*3600
+        while self.t and self.t[0] < cutoff:
+            self.t.pop(0); self.y.pop(0); self.ramp.pop(0); self.u.pop(0)
 
-    def _track_extreme(self, pv: float):
-        if self._extreme_pv is None:
-            self._extreme_pv = pv
-            return
-        if self._state_high:
-            # rising from a min
-            if pv < self._extreme_pv: self._extreme_pv = pv
-        else:
-            # falling from a max
-            if pv > self._extreme_pv: self._extreme_pv = pv
+    def maybe_update_pid(self, pid: PIDController) -> bool:
+        if not ONLINE_FOPDT_ADAPT or not _SCIPY_OK:
+            return False
+        n = len(self.t)
+        if n < 3:   # need at least two prior windows
+            return False
 
-    def _enough(self) -> bool:
-        # need >= 6 half-cycles for decent estimate
-        return len(self._extrema) >= self.min_half_cycles
+        # recent ramp error and duty step across the last two windows
+        err = self.ramp[-1] - self.y[-1]
+        dU  = self.u[-1] - self.u[-2]
 
-    def _analyze(self) -> Tuple[float, float, float]:
-        maxima = [e for e in self._extrema if e["type"] == "max"]
-        minima = [e for e in self._extrema if e["type"] == "min"]
-        if len(maxima) < 2 or len(minima) < 2:
-            raise RuntimeError("Insufficient extrema for analysis")
+        if abs(err) < ERROR_C_FOR_ADAPT or abs(dU) < ADAPT_MIN_STEP:
+            return False
 
-        # amplitude a
-        pairs = min(len(maxima), len(minima))
-        amps = [abs(maxima[-i]["pv"] - minima[-i]["pv"]) / 2.0 for i in range(1, pairs+1)]
-        a = sum(amps) / len(amps)
+        # choose window starting at the step index (n-1), include up to ADAPT_FIT_SECONDS after
+        t0 = self.t[-2]   # time of previous window end (where step occurred)
+        i0 = n-2
+        # collect indices within fit horizon
+        i_end = i0
+        while (i_end + 1) < n and (self.t[i_end] - t0) < ADAPT_FIT_SECONDS:
+            i_end += 1
+        if (i_end - i0) < 3:
+            return False
 
-        # period Tu (use maxima)
-        periods = []
-        for i in range(1, len(maxima)):
-            dt = maxima[i]["ts"] - maxima[i-1]["ts"]
-            if dt > 0: periods.append(dt)
-        if not periods:
-            raise RuntimeError("No valid period measured")
-        Tu = sum(periods) / len(periods)
+        t_rel = np.array(self.t[i0:i_end+1], dtype=float) - t0
+        y_win = np.array(self.y[i0:i_end+1], dtype=float)
 
-        # ultimate gain Ku from relay amplitude (high=100, low=0 => d=50% => 0.5 in [0..1])
-        d = 0.5
-        Ku = (4.0 * d) / (math.pi * a)
+        # baseline PV before step (median of few prior points if available)
+        pre0 = max(0, i0-3)
+        y0 = float(np.median(self.y[pre0:i0])) if i0 > pre0 else float(self.y[i0])
+        y_rel = y_win - y0
 
-        L.info(f"[AUTOTUNE] a={a:.2f} Tu={Tu:.2f}s Ku={Ku:.4f}")
-        return Ku, Tu, a
-
-    @staticmethod
-    def tyreus_luyben(Ku: float, Tu: float) -> Tuple[float, float, float]:
-        Kp = 0.454 * Ku
-        Ti = 2.2 * Tu
-        Td = 0.159 * Tu
-        Ki = Kp / Ti
-        Kd = Kp * Td
-        return Kp, Ki, Kd
-
-    def run(self) -> Tuple[float, float, float]:
         try:
-            while True:
-                if (time.time() - self._start) > self.max_seconds:
-                    raise RuntimeError("Autotune timed out")
-                pv = float(self.read_pv())
-                self._track_extreme(pv)
-                switched = self._switch_if_needed(pv)
-                if switched and self._enough():
-                    break
-                time.sleep(1.0)
-            Ku, Tu, _ = self._analyze()
-            kp, ki, kd = self.tyreus_luyben(Ku, Tu)
-            return kp, ki, kd
-        finally:
-            # always turn off heat at end
-            self.write_out(0.0)
-            L.info("[AUTOTUNE] end")
+            K, tau, theta = _fit_fopdt_unit_step(t_rel, y_rel, dU)
+        except Exception as e:
+            L.debug(f"[ADAPT] FOPDT fit failed: {e}")
+            return False
 
+        try:
+            Kp_suggest, Ki_sec, lam = _simc_pi_from_fopdt(K, tau, theta, ADAPT_LAMBDA_FACTOR)
+        except Exception as e:
+            L.debug(f"[ADAPT] SIMC gains failed: {e}")
+            return False
+
+        # Convert Ki to per-window "one call per window" units
+        Ki_call = Ki_sec * self.window
+
+        # Blend & clamp
+        def clamp(v, lo, hi): return max(lo, min(hi, v))
+        a = ADAPT_MAX_GAIN_BLEND
+        new_kp = clamp(pid.kp*(1-a) + Kp_suggest*a, *ADAPT_KP_BOUNDS)
+        new_ki = clamp(pid.ki*(1-a) + Ki_call*a,   *ADAPT_KI_BOUNDS)
+        new_kd = pid.kd  # leave unchanged
+
+        if (abs(new_kp - pid.kp) < 1e-12) and (abs(new_ki - pid.ki) < 1e-12):
+            return False
+
+        L.info(f"[ADAPT] err={err:+.1f}°C dU={dU:+.2f}  FOPDT: K={K:.3g} τ={tau:.1f}s θ={theta:.1f}s λ={lam:.1f}s  "
+               f"Kp {pid.kp:.4g}->{new_kp:.4g}  Ki {pid.ki:.4g}->{new_ki:.4g} (per window)")
+        pid.kp, pid.ki, pid.kd = new_kp, new_ki, new_kd
+        return True
 
 # -------------------
-# Kiln Controller (Profiles/Segments, Status, DB I/O)
+# Kiln Controller
 # -------------------
 class KilnController:
     def __init__(self):
@@ -374,19 +419,22 @@ class KilnController:
         self.sql.row_factory = sqlite3.Row
         self.cur = self.sql.cursor()
 
-        # active PID (values will be set per run)
+        # Index to speed up idle upsert (safe if it already exists)
+        try:
+            self.cur.execute("CREATE INDEX IF NOT EXISTS idx_firing_run_seg ON firing(run_id, segment)")
+            self.sql.commit()
+        except Exception:
+            self.sql.rollback()
+
+        self._sim_booted = False  # one-shot flag for sim init per run
         self.pid = PIDController(0.0, 0.0, 0.0, i_min=0.0, i_max=100.0)
+        self.sim_temp = 25.0
 
-        # for Debug sim
-        self.sim_temp = 20.0
-
-        # cleanup on signals
         for sig in (SIGABRT, SIGINT, SIGTERM):
             signal(sig, self._clean_exit)
 
-        # initial log (boot)
         configure_run_logger(None)
-        L.info("=== START PiLN Firing Daemon (refactor)===")
+        L.info("=== START PiLN Firing Daemon (FOPDT online adjust) ===")
 
     def _clean_exit(self, *args):
         print("\nProgram ending! Cleaning up...\n")
@@ -397,30 +445,14 @@ class KilnController:
             print("All clean - Stopping.\n")
             os._exit(0)
 
-    # ---- temperature read with debug sim ----
     def read_temp(self) -> Tuple[float, float]:
+        """Unified read: returns (process_temp, internal_temp). In sim, returns simulated value."""
         if DEBUG_SIM:
             return self.sim_temp, 25.0
         else:
             return self.tc_reader.read_temperature()
 
-    # ---- status JSON (same format as original) ----
-    def write_status(self, readtemp, run_id, seg, ramptemp, targettemp, status, segtime):
-        os.makedirs(os.path.dirname(StatFile), exist_ok=True)
-        payload = {
-            "proc_update_utime": str(int(time.time())),
-            "readtemp": str(int(readtemp)) if not math.isnan(readtemp) else "0",
-            "run_profile": str(run_id) if run_id is not None else "none",
-            "run_segment": str(seg) if seg is not None else "n/a",
-            "ramptemp": str(int(ramptemp)) if ramptemp is not None else "n/a",
-            "targettemp": str(int(targettemp)) if targettemp is not None else "n/a",
-            "status": str(status),
-            "segtime": str(segtime),
-        }
-        with open(StatFile, "w") as f:
-            json.dump(payload, f, indent=2)
-
-    # ---- DB helpers (same schema assumptions) ----
+    # --- DB helpers ---
     def set_profile_start(self, run_id: int):
         st = time.strftime('%Y-%m-%d %H:%M:%S')
         self.cur.execute("UPDATE profiles SET start_time=? WHERE run_id=?;", (st, run_id))
@@ -442,55 +474,68 @@ class KilnController:
         self.sql.commit()
 
     def insert_firing_row(self, run_id, seg, set_temp, temp, int_temp, pid_out):
-        self.cur.execute(
-            "INSERT INTO Firing (run_id, segment, dt, set_temp, temp, int_temp, pid_output) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (run_id, seg, time.strftime('%Y-%m-%d %H:%M:%S'), float(set_temp), float(temp), float(int_temp), float(pid_out))
-        )
-        self.sql.commit()
+        try:
+            self.cur.execute(
+                "INSERT INTO firing (run_id, segment, dt, set_temp, temp, int_temp, pid_output) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (run_id, seg, time.strftime('%Y-%m-%d %H:%M:%S'),
+                 float(set_temp), float(temp), float(int_temp), float(pid_out))
+            )
+            self.sql.commit()
+        except Exception:
+            self.sql.rollback()
 
-    # ---- relay autotune (optional) ----
-    def maybe_autotune(self, run_id: int, setpoint: float) -> Tuple[float, float, float]:
-        if not AUTOTUNE_ON_START:
-            return None
-        L.info(f"Starting AUTOTUNE for RunID {run_id} at SP={setpoint:.1f}")
-        tuner = RelayAutotune(
-            setpoint=setpoint,
-            read_pv=lambda: self.read_temp()[0],
-            write_out=self.hardware.write_output_percent,
-            noiseband=AUTOTUNE_NOISE_BAND,
-            max_seconds=AUTOTUNE_MAX_SECONDS,
-            min_half_cycles=AUTOTUNE_MIN_HALF_CYCLES
-        )
-        kp, ki, kd = tuner.run()
-        L.info(f"AUTOTUNE gains TL: Kp={kp:.5f} Ki={ki:.5f} Kd={kd:.5f}")
-        # store to profiles table (p_param/i_param/d_param)
-        self.cur.execute("UPDATE profiles SET p_param=?, i_param=?, d_param=? WHERE run_id=?;", (kp, ki, kd, run_id))
-        self.sql.commit()
-        return kp, ki, kd
+    def upsert_idle_temp(self, temp, int_temp):
+        """Keep a single idle row (run_id=0, segment=0) updated while idle."""
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            self.cur.execute(
+                "UPDATE firing "
+                "SET dt=?, set_temp=0, temp=?, int_temp=?, pid_output=0.0 "
+                "WHERE run_id=0 AND segment=0",
+                (now, float(temp), float(int_temp))
+            )
+            if self.cur.rowcount == 0:
+                try:
+                    self.cur.execute(
+                        "INSERT INTO firing (run_id, segment, dt, set_temp, temp, int_temp, pid_output) "
+                        "VALUES (0, 0, ?, 0, ?, ?, 0.0)",
+                        (now, float(temp), float(int_temp))
+                        )
+                except Exception:
+                    print("firing row 0 could not be created")
+            self.sql.commit()
+        except Exception:
+            print("The Idle temps could not be updated or sql row could not be created")
+            self.sql.rollback()
 
-    # ---- main segment firing loop (refactor of Fire()) ----
+    # ---- main segment firing loop ----
     def fire_segment(self, run_id: int, seg: int, target_tmp: float, rate: float,
                      hold_min: int, window: int, kp: float, ki: float, kd: float):
-        """
-        Emulates the original segment loop:
-        - Construct ramp schedule (RampTmp moving toward TargetTmp).
-        - Use PID on RampTmp vs ReadTmp to produce Output% (0..100), with 200 meaning 'error'.
-        - Convert Output% to time-proportioning within 'window' seconds.
-        """
+
         L.info(f"Entering segment RunID={run_id} Seg={seg} Target={target_tmp} Rate={rate} HoldMin={hold_min} Window={window}")
 
-        # prepare PID
+        # Apply initial DB gains; note Ki in DB is per-call (as before)
         self.pid = PIDController(kp, ki, kd, i_min=0.0, i_max=100.0)
-        run_state = "Ramp"
-        seg_comp_stat = 0
 
-        # read initial temp
-        if DEBUG_SIM:
-            read_tmp = self.sim_temp
-            int_tmp = 25.0
-        else:
+        # Initialize simulated ambient once per run, at segment 1
+        if DEBUG_SIM and seg == 1 and not self._sim_booted:
+            self.sim_temp = 20.0
+            self._sim_booted = True
+            L.info("[SIM] Initializing sim_temp to 20.0°C for segment 1")
+
+        adapter = OnlineFOPDTAdapter(window)
+
+        run_state = "Ramp"
+
+        # initial read (always use unified reader so sim updates propagate)
+        try:
             read_tmp, int_tmp = self.read_temp()
+        except ThermocoupleError:
+            run_state = "Error"
+            try: self.hardware.heat_off()
+            except Exception: pass
+            return run_state
 
         last_tmp = 0.0
         last_err = 0.0
@@ -514,23 +559,21 @@ class KilnController:
                 next_sec = now + window
                 last_tmp = read_tmp
 
-                # fresh reading
-                if DEBUG_SIM:
-                    # crude sim: drift toward target by prior output
-                    pass
-                else:
-                    try:
-                        read_tmp, int_tmp = self.read_temp()
-                    except ThermocoupleError:
-                        run_state = "Error"
-                        break
+                # fresh reading (unconditional)
+                try:
+                    read_tmp, int_tmp = self.read_temp()
+                except ThermocoupleError:
+                    run_state = "Error"
+                    try: self.hardware.heat_off()
+                    except Exception: pass
+                    break
 
                 # guard bad read
                 if math.isnan(read_tmp) or read_tmp > MAX_TEMP_C:
                     read_tmp = last_tmp + last_err
                     print('  "kilntemp": "' + str(int(read_tmp)) + '",\n')
 
-                # initial setup (like original "First pass")
+                # first pass (init ramp math)
                 if start_tmp == 0:
                     start_tmp = read_tmp
                     start_sec = int(time.time())
@@ -551,11 +594,10 @@ class KilnController:
                 if ramp_trg == 0:
                     ramp_tmp += step_tmp
 
-                # Rising segment logic
+                # Rising logic
                 if tmp_dif > 0:
                     if ramp_trg == 0 and ramp_tmp >= target_tmp:
-                        ramp_tmp = target_tmp
-                        ramp_trg = 1
+                        ramp_tmp = target_tmp; ramp_trg = 1
                         run_state = "Ramp complete" if read_trg == 0 else "Ramp/Hold"
                     if ((target_tmp - read_tmp) <= 0.5 or read_tmp >= target_tmp) and read_trg == 0:
                         read_trg = 1
@@ -563,11 +605,10 @@ class KilnController:
                         L.info(f"Set temp reached - End seconds set to {end_sec}")
                         run_state = "Target Reached" if ramp_trg == 0 else "Target/Hold"
 
-                # Falling segment logic
+                # Falling logic
                 elif tmp_dif < 0:
                     if ramp_tmp <= target_tmp and ramp_trg == 0:
-                        ramp_tmp = target_tmp
-                        ramp_trg = 1
+                        ramp_tmp = target_tmp; ramp_trg = 1
                         run_state = "Ramp complete" if read_trg == 0 else "Target/Ramp"
                     if ((read_tmp - target_tmp) <= 0.5 or read_tmp <= target_tmp) and read_trg == 0:
                         read_trg = 1
@@ -575,11 +616,9 @@ class KilnController:
                         L.info(f"Set temp reached - End seconds set to {end_sec}")
                         run_state = "Target Reached" if ramp_trg == 0 else "Ramp/Target"
 
-                # compute PID output against ramp target
-                out = self.pid.compute(ramp_tmp, read_tmp)  # 0..100 nominal, 200 signals error
-                cycle_on_sec = window * (out * 0.01)
-                if cycle_on_sec > window:
-                    cycle_on_sec = window
+                # PID compute, convert to duty
+                out = self.pid.compute(ramp_tmp, read_tmp)
+                cycle_on_sec = min(window, window * (out * 0.01))
 
                 remain_sec = end_sec - int(time.time())
                 rem_min, rem_sec = divmod(max(0, remain_sec), 60)
@@ -590,40 +629,48 @@ class KilnController:
                         f"ReadTmp:{read_tmp:.2f}, RampTmp:{ramp_tmp:.2f}, TargetTmp:{target_tmp:.2f}, "
                         f"Output:{out:.2f}, CycleOnSec:{cycle_on_sec:.2f}, RemainTime:{rem_time}")
 
-                # console print for parity with original
                 print(f"""RunID {run_id}, Segment {seg} (loop {cnt}) - RunState:{run_state},
                        ReadTmp:{read_tmp:.2f}, RampTmp:{ramp_tmp:.2f}, TargetTmp:{target_tmp:.2f},
                        Output:{out:.2f}, CycleOnSec:{cycle_on_sec:.2f}, RemainTime:{rem_time}
                 """)
 
-                # drive relays
+                # drive relays (time-proportioning)
                 if out > 0:
                     if out == 200.0:
-                        # signal error as in original
                         self.cur.execute("UPDATE profiles SET state=? WHERE run_id=?;", ('Error', run_id))
                         self.sql.commit()
                         L.error(f"State = Error RunID: {run_id}")
                         run_state = "Error"
+                        try: self.hardware.heat_off()
+                        except Exception: pass
                     else:
-                        self.hardware.heat_on()
                         if DEBUG_SIM:
+                            self.hardware.heat_off()
+                            # simplistic sim: heat raises temp proportional to on-time
                             self.sim_temp += (cycle_on_sec * 5.0)
+                        else:
+                            self.hardware.heat_on()
                         time.sleep(cycle_on_sec)
 
                 if out < 100.0:
                     self.hardware.heat_off()
                     if DEBUG_SIM:
+                        # simplistic sim: cool a bit when off
                         self.sim_temp -= 2.0
 
-                # status file
-                self.write_status(read_tmp, run_id, seg, ramp_tmp, target_tmp, run_state, rem_time)
-
-                # Firing row
+                # status + logging row
                 try:
                     self.insert_firing_row(run_id, seg, ramp_tmp, read_tmp, int_tmp, out)
                 except Exception:
                     self.sql.rollback()
-                    L.error("DB insert failed (Firing)")
+                    L.error("DB insert failed (firing)")
+
+                # --- Online FOPDT adjust (once per window) ---
+                try:
+                    adapter.add_sample(time.time(), read_tmp, ramp_tmp, out)
+                    adapter.maybe_update_pid(self.pid)
+                except Exception as e:
+                    L.debug(f"[ADAPT] exception: {e}")
 
                 # profile still running?
                 self.cur.execute("SELECT * FROM profiles WHERE state='Running';")
@@ -640,91 +687,72 @@ class KilnController:
 
         return run_state
 
-    # ---- main loop (poll for Running profiles, like original) ----
+    # ---- poll loop ----
     def run(self):
         L.info("Polling for 'Running' firing profiles...")
         while True:
-            # initial status file update (no profile)
             try:
-                read_tmp, _ = self.read_temp()
+                read_tmp, int_tmp = self.read_temp()
             except ThermocoupleError:
-                read_tmp = float('nan')
-            self.write_status(read_tmp, None, None, None, None, "n/a", "0:00:00")
+                read_tmp, int_tmp = float('nan'), float('nan')
 
-            # find running profile
             self.cur.execute("SELECT * FROM profiles WHERE state=?;", ('Running',))
             data = self.cur.fetchall()
 
             if data:
                 run_id = data[0]['run_id']
-                kp = float(data[0]['p_param'])
-                ki = float(data[0]['i_param'])
-                kd = float(data[0]['d_param'])
+                kp = float(data[0]['p_param']) if data[0]['p_param'] is not None else 0.0
+                ki = float(data[0]['i_param']) if data[0]['i_param'] is not None else 0.0
+                kd = float(data[0]['d_param']) if data[0]['d_param'] is not None else 0.0
 
-                # per-run logger
+                kp, ki, kd = _fallback_pid(kp, ki, kd)
+
                 configure_run_logger(run_id)
                 L.info("=== Run start ===")
 
-                # set start time
+                if DEBUG_SIM:
+                    self._sim_booted = False   # reset per run
+
                 try:
                     self.set_profile_start(run_id)
                 except Exception:
                     self.sql.rollback()
 
-                # optional autotune (writes gains back)
-                try:
-                    # pick a reasonable SP to tune around: first segment set_temp
-                    self.cur.execute("SELECT set_temp FROM segments WHERE run_id=? ORDER BY segment ASC LIMIT 1;", (run_id,))
-                    row = self.cur.fetchone()
-                    sp_for_autotune = float(row['set_temp']) if row else 200.0
-                    if AUTOTUNE_ON_START:
-                        gains = self.maybe_autotune(run_id, sp_for_autotune)
-                        if gains is not None:
-                            kp, ki, kd = gains
-                except Exception as e:
-                    L.error(f"Autotune step skipped/failed: {e}")
-
                 # get segments
                 self.cur.execute("SELECT * FROM segments WHERE run_id=?;", (run_id,))
                 profsegs = self.cur.fetchall()
-                total_seg = len(profsegs)
-                L.info(f"TotalSeg: {total_seg}")
+                L.info(f"TotalSeg: {len(profsegs)}")
 
                 run_state_final = None
 
                 for row in profsegs:
-                    seg = row['segment']
-                    target = row['set_temp']
-                    rate = row['rate']
-                    hold_min = row['hold_min']
-                    window = row['int_sec']
+                    seg       = row['segment']
+                    target    = row['set_temp']
+                    rate      = row['rate']
+                    hold_min  = row['hold_min']
+                    window    = row['int_sec']
 
-                    # if already finished, skip; else fire
                     if row['start_time'] is not None and row['end_time'] is not None:
                         L.info(f"segment {seg} already finished")
                         continue
 
-                    # mark start
-                    try:
-                        self.set_segment_start(run_id, seg)
-                    except Exception:
-                        self.sql.rollback()
+                    try: self.set_segment_start(run_id, seg)
+                    except Exception: self.sql.rollback()
 
-                    # execute segment
                     state = self.fire_segment(run_id, seg, target, rate, hold_min, window, kp, ki, kd)
                     run_state_final = state
 
-                    # mark segment end
                     try:
-                        self.set_segment_end(run_id, seg)
+                        self.hardware.heat_off()  # ensure off between segments
                     except Exception:
-                        self.sql.rollback()
+                        pass
 
-                    # if error/stop, break early
+                    try: self.set_segment_end(run_id, seg)
+                    except Exception: self.sql.rollback()
+
                     if state in ("Error", "Stopped"):
                         break
 
-                # if finished all segments without error/stop -> Completed
                 if run_state_final not in ("Error", "Stopped"):
                     try:
                         self.set_profile_end(run_id, 'Completed')
@@ -733,12 +761,16 @@ class KilnController:
                         self.sql.rollback()
                         L.error("DB Update failed (set Completed)")
 
-                # remove run-specific handlers
                 configure_run_logger(None)
                 L.info("Polling for 'Running' firing profiles...")
+            else:
+                # IDLE: maintain one up-to-date row
+                if not math.isnan(read_tmp):
+                    self.upsert_idle_temp(read_tmp, int_tmp)
+                time.sleep(5)
+                continue
 
             time.sleep(2)
-
 
 # -------------------
 # Entry point
@@ -749,7 +781,6 @@ def main():
         ctl.run()
     finally:
         ctl.hardware.cleanup()
-
 
 if __name__ == "__main__":
     main()
