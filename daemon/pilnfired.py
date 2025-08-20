@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pilnfired_refactored.py (online FOPDT adjust, no relay autotune)
+# pilnfired.py (online FOPDT adjust, no relay autotune)
 
 from signal import signal, SIGABRT, SIGINT, SIGTERM
 import os, time, math, logging, sqlite3, sys
@@ -32,7 +32,7 @@ SQLDB    = '/home/pi/PILN/db/PiLN.sqlite3'
 HEAT_PINS = (5, 6)
 MAX_TEMP_C = 1330.0
 MIN_VALID_TEMP_C = 0.1
-DEBUG_SIM = True
+DEBUG_SIM = False
 
 # --- PID defaults ---
 DEFAULT_KP = 20.0
@@ -137,15 +137,19 @@ class ThermocoupleError(Exception):
     pass
 
 class ThermocoupleReader:
-    """Reads MAX31856 with progressive recovery and brief 'quiet' sampling to reduce EMI."""
     def __init__(self, hardware: KilnHardware,
-                 soft_retries=3, reinit_attempts=2, hwreset_attempts=1, read_delay=0.2):
+                 soft_retries=3, reinit_attempts=2, hwreset_attempts=1,
+                 read_delay=0.2,
+                 samples_per_read=25, sample_delay=0.005):
         self.hardware = hardware
         self.soft_retries = soft_retries
         self.reinit_attempts = reinit_attempts
         self.hwreset_attempts = hwreset_attempts
         self.read_delay = read_delay
+        self.samples_per_read = samples_per_read
+        self.sample_delay = sample_delay
         self._init_sensor()
+
 
     def _init_sensor(self):
         self.spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
@@ -190,46 +194,72 @@ class ThermocoupleReader:
             pass
         return t
 
+    def _read_avg(self) -> Tuple[float, float]:
+        """
+        Take samples_per_read quick samples, average them, and return
+        (avg_temp, avg_reference_temp). Raises if none were valid.
+        """
+        temps = []
+        refs = []
+        for _ in range(self.samples_per_read):
+            t = self._read_once()
+            if self._valid(t):
+                temps.append(float(t))
+                # reference_temperature can be read each time; average it too
+                try:
+                    refs.append(float(self.tc.reference_temperature))
+                except Exception:
+                    # if ref read fails intermittently, ignore this sample's ref
+                    pass
+            time.sleep(self.sample_delay)
+
+        if not temps:
+            raise RuntimeError("No valid samples in averaging window")
+
+        avg_t = sum(temps) / len(temps)
+        avg_ref = (sum(refs) / len(refs)) if refs else 0.0
+        return avg_t, avg_ref
+
     def read_temperature(self) -> Tuple[float, float]:
+        """Returns (avg_temp, avg_internal_reference). Uses averaging + progressive recovery."""
+        # --- soft retries (object intact) ---
         for i in range(self.soft_retries):
             try:
-                t = self._read_once()
-                if self._valid(t):
-                    return t, float(self.tc.reference_temperature)
-                L.debug(f"Soft retry {i+1}/{self.soft_retries} invalid t={t}")
+                avg_t, avg_ref = self._read_avg()
+                return avg_t, avg_ref
             except Exception as e:
-                L.debug(f"Soft retry {i+1} exception {e}")
+                L.debug(f"Soft retry {i+1}/{self.soft_retries} exception/invalid: {e}")
             time.sleep(self.read_delay)
 
+        # --- reinit object and try again ---
         for i in range(self.reinit_attempts):
             try:
                 L.warning("Reinitializing MAX31856 object…")
                 self._init_sensor()
-                t = self._read_once()
-                if self._valid(t):
-                    return t, float(self.tc.reference_temperature)
+                avg_t, avg_ref = self._read_avg()
+                return avg_t, avg_ref
             except Exception as e:
-                L.debug(f"Reinit {i+1} exception {e}")
+                L.debug(f"Reinit {i+1} exception: {e}")
             time.sleep(self.read_delay)
 
+        # --- full hardware reinit (CS wiggle) ---
         for i in range(self.hwreset_attempts):
             try:
                 L.warning("Full hardware reinit for thermocouple/SPI…")
                 self._full_reinit()
-                t = self._read_once()
-                if self._valid(t):
-                    return t, float(self.tc.reference_temperature)
+                avg_t, avg_ref = self._read_avg()
+                return avg_t, avg_ref
             except Exception as e:
-                L.debug(f"HW reset {i+1} exception {e}")
+                L.debug(f"HW reset {i+1} exception: {e}")
             time.sleep(self.read_delay)
 
+        # --- fail-safe ---
         L.error("Thermocouple permanently failed; failing safe. Relays OFF.")
         try:
             self.hardware.heat_off()
         except Exception:
             pass
         raise ThermocoupleError("MAX31856 read failed after recovery attempts")
-
 # -------------------
 # PID Controller
 # -------------------
@@ -741,11 +771,6 @@ class KilnController:
 
                     state = self.fire_segment(run_id, seg, target, rate, hold_min, window, kp, ki, kd)
                     run_state_final = state
-
-                    try:
-                        self.hardware.heat_off()  # ensure off between segments
-                    except Exception:
-                        pass
 
                     try: self.set_segment_end(run_id, seg)
                     except Exception: self.sql.rollback()
