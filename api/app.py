@@ -4,7 +4,6 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timedelta
-
 import subprocess
 try:
     import psutil
@@ -15,7 +14,6 @@ APP_DIR = "/home/pi/PILN"
 STAT_FILE = os.path.join(APP_DIR, "app", "pilnstat.json")
 DB_PATH = os.path.join(APP_DIR, "db", "PiLN.sqlite3")
 
-
 app = Flask(
     __name__,
     template_folder="/home/pi/PILN/template",   # <-- add this
@@ -25,6 +23,19 @@ app = Flask(
 )
 
 # -------- helpers --------
+
+# Helper function to format timestamp without timezone conversion
+def to_local_time(db_timestamp):
+    if db_timestamp:
+        # Check if the input is a datetime object
+        if isinstance(db_timestamp, datetime):
+            # Format the datetime object directly
+            return db_timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            # If it's a string, return it as-is (assuming it matches the desired format)
+            return db_timestamp
+    return None
+
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=False)
@@ -73,17 +84,40 @@ def status():
             "error": str(e)
         }), 200
 
+# Get segment start/end times for automatic updates
+@app.get("/run/<int:run_id>/times")
+def run_times(run_id):
+    db = get_db()
 
-#@app.get("/images/<path:filename>")
-#def images(filename):
-#    return send_from_directory(os.path.join(APP_DIR, "images"), filename)
+    run = db.execute(
+        "SELECT start_time, end_time, state FROM profiles WHERE run_id=?",
+        (run_id,)
+    ).fetchone()
+    if run is None:
+        return jsonify({"error": "not found"}), 404
 
-# (optional) favicon
-#@app.get("/favicon.ico")
-#def favicon():
-#    return send_from_directory(os.path.join(APP_DIR, "images"), "favicon.ico")
+    seg_rows = db.execute(
+        "SELECT segment, start_time, end_time "
+        "FROM segments WHERE run_id=? ORDER BY segment ASC",
+        (run_id,)
+    ).fetchall()
 
+    segments = [
+        {
+            "segment": r["segment"],
+            "start_time": to_local_time(r["start_time"]),
+            "end_time": to_local_time(r["end_time"]),
+        }
+        for r in seg_rows
+    ]
 
+    return jsonify({
+        "run_id": run_id,
+        "state": run["state"],
+        "start_time": to_local_time(run["start_time"]),
+        "end_time": to_local_time(run["end_time"]),
+        "segments": segments,
+    })
 # -------- NEW: incremental data endpoint --------
 @app.post("/api/data")
 def data_delta():
@@ -383,7 +417,7 @@ def ui_view():
     page = render_template(viewtmpl, segments=segments, profile=profile,
                            run_id=run_id, state=state, notes=notes)
 
-    if state in ("Completed", "Running", "Stopped"):
+    if state in ("Completed", "Running", "Stopped", "Error"):
         page += render_template("chart.html", run_id=run_id, notes=notes)
 
     return render_template("header.html", title="Profile Details") + page + render_template("footer.html")
