@@ -36,23 +36,47 @@
       <th>&deg;C/hr</th>
       <th>Hold Min</th>
       <th>Int Sec</th>
-      <th>Last Start Time</th>
-      <th>Last End Time</th>
+      <th>Start Time</th>
+      <th>End Time</th>
     </tr>
   </thead>
   <tbody>
   {% for segment in segments %}
-    <tr>
+    <tr data-segment="{{ segment['segment'] }}">
       <td>{{ segment['segment'] }}</td>
       <td>{{ segment['set_temp'] }}</td>
       <td>{{ segment['rate'] }}</td>
       <td>{{ segment['hold_min'] }}</td>
       <td>{{ segment['int_sec'] }}</td>
-      <td>{{ segment['start_time'] }}</td>
-      <td>{{ segment['end_time'] }}</td>
+      <td class="start-time">{{ segment['start_time'] }}</td>
+      <td class="end-time">{{ segment['end_time'] }}</td>
     </tr>
   {% endfor %}
   </tbody> 
 </table>
 
 <br>
+<script>
+async function refreshTimes(runId) {
+  try {
+    const resp = await fetch(`/run/${runId}/times`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    data.segments.forEach(seg => {
+      const row = document.querySelector(`tr[data-segment="${seg.segment}"]`);
+      if (row) {
+        const startCell = row.querySelector(".start-time");
+        const endCell = row.querySelector(".end-time");
+        if (startCell) startCell.textContent = seg.start_time || "";
+        if (endCell) endCell.textContent = seg.end_time || "";
+      }
+    });
+  } catch (err) {
+    console.error("Failed to refresh times", err);
+  }
+}
+
+// refresh every 15s
+setInterval(() => refreshTimes({{ run_id }}), 15000);
+</script>
