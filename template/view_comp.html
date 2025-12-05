@@ -1,4 +1,3 @@
-
 <div class="piln-actions">
   <a class="piln-btn" href="/home">Home</a>
   <a class="piln-btn piln-btn-secondary"
@@ -26,6 +25,8 @@
       <th>Rate(&deg;C/hr)</th>
       <th>Hold Minutes</th>
       <th>Interval Seconds</th>
+      <th>Start Time</th>
+      <th>End Time</th>
     </tr>
   </thead>
   <tbody>
@@ -36,6 +37,8 @@
       <td>{{ segment['rate'] }}</td>
       <td>{{ segment['hold_min'] }}</td>
       <td>{{ segment['int_sec'] }}</td>
+      <td class="start-time">{{ segment['start_time'] }}</td>
+      <td class="end-time">{{ segment['end_time'] }}</td>
     </tr>
   {% endfor %}
   </tbody>
