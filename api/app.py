@@ -10,17 +10,16 @@ try:
 except Exception:
     psutil = None
 
-APP_DIR = "/home/pi/PILN"
+APP_DIR = os.environ.get("PILN_HOME", "/home/pi/PILN")
+#APP_DIR = "/home/pi/PILN"
 STAT_FILE = os.path.join(APP_DIR, "app", "pilnstat.json")
 DB_PATH = os.path.join(APP_DIR, "db", "PiLN.sqlite3")
+TEMPLATE_DIR = os.path.join(APP_DIR, "template"))
 
 app = Flask(
     __name__,
-    template_folder="/home/pi/PILN/template",   # <-- add this
-    # static_folder can stay default; lighttpd is serving /style itself
-#	static_folder=os.path.join(APP_DIR, "style"),
-#    static_url_path="/style",   
-)
+    template_folder=TEMPLATE_DIR)   
+
 
 # -------- helpers --------
 
