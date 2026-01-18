@@ -14,11 +14,12 @@ APP_DIR = os.environ.get("PILN_HOME", "/home/pi/PILN")
 #APP_DIR = "/home/pi/PILN"
 STAT_FILE = os.path.join(APP_DIR, "app", "pilnstat.json")
 DB_PATH = os.path.join(APP_DIR, "db", "PiLN.sqlite3")
-TEMPLATE_DIR = os.path.join(APP_DIR, "template"))
+TEMPLATE_DIR = os.path.join(APP_DIR, "template")
 
 app = Flask(
     __name__,
-    template_folder=TEMPLATE_DIR)   
+    template_folder=TEMPLATE_DIR
+)   
 
 
 # -------- helpers --------
