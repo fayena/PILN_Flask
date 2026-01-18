@@ -83,8 +83,15 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
    chmod +x pilnsetup.sh
    ./pilnsetup.sh
 	```
+   OR for the dev branch
+   ```bash
+   cd ~
+   wget https://raw.githubusercontent.com/fayena/PILN_Flask/refs/heads/dev/setup.sh
+   chmod +x setup.sh
+   ./setup.sh
+   ```
 
-3. **Services** (installed by the script):
+4. **Services** (installed by the script):
 
    ```bash
    # status
@@ -96,7 +103,7 @@ Electric kilns draw serious current and reach extreme temperatures. Use properly
    sudo systemctl restart pilnfired.service
    ```
 
-4. **Open the UI** in your browser:
+5. **Open the UI** in your browser:
 
    ```
    http://<your-pi-ip>/home
