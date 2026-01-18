@@ -22,24 +22,18 @@ except Exception:
 import numpy as np
 
 # -------------------
-# Hardcoded paths
+# Config from environment (systemd EnvironmentFile=piln.env)
 # -------------------
-AppDir   = '/home/pi/PILN'
-SQLDB    = '/home/pi/PILN/db/PiLN.sqlite3'
+AppDir = os.environ.get("PILN_HOME", "/home/pi/PILN")
+SQLDB  = os.environ.get("PILN_DB_PATH", os.path.join(AppDir, "db", "PiLN.sqlite3"))
 
-# -------------------
-# Timezone helpers
-# -------------------
-LOCAL_TZ = ZoneInfo("America/Chicago")
+TZ_NAME = os.environ.get("PILN_TIMEZONE", "UTC")
+try:
+    LOCAL_TZ = ZoneInfo(TZ_NAME)
+except Exception:
+    LOCAL_TZ = ZoneInfo("UTC")
 
-def now_local() -> datetime:
-    """Timezone-aware local time (America/Chicago)."""
-    return datetime.now(LOCAL_TZ)
-
-def now_str() -> str:
-    """Formatted timestamp for DB/logs in local tz."""
-    return now_local().strftime("%Y-%m-%d %H:%M:%S")
-
+THERMOCOUPLE = os.environ.get("THERMOCOUPLE", "S")
 # -------------------
 # Constants / Options
 # -------------------
