@@ -11,6 +11,7 @@ set -euo pipefail
 # ============================================================
 
 REPO_URL="https://github.com/fayena/PILN_Flask.git"
+REPO_BRANCH="dev"
 
 # App user (Pi OS now asks during install; don't assume 'pi')
 APP_USER="alforddm"
@@ -97,7 +98,7 @@ sudo mkdir -p "${APP_HOME%/*}"
 sudo chown -R "${APP_USER}:${APP_GROUP}" "${APP_HOME%/*}"
 
 if [ ! -d "${APP_HOME}/.git" ]; then
-  sudo -u "${APP_USER}" git clone --depth=1 "${REPO_URL}" "${APP_HOME}"
+  sudo -u "${APP_USER}" git clone --depth=1 --branch "${REPO_BRANCH}" "${REPO_URL}" "${APP_HOME}"
 else
   echo "Repo already exists at ${APP_HOME}"
 fi
