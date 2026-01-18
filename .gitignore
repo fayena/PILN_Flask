@@ -1,0 +1,13 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+
+# Local configuration
+piln.env
+.env
+
+# OS/editor noise
+.DS_Store
