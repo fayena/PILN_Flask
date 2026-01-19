@@ -22,6 +22,9 @@ USER_HOME="/home/${APP_USER}"
 APP_NAME="PILN"
 APP_HOME="${USER_HOME}/${APP_NAME}"
 
+# hardware
+THERMO_TYPE="S"            # S, K, etc.
+
 # Python / entrypoints
 VENV_DIR="${APP_HOME}/.venv"
 ENTRYPOINT="${APP_HOME}/daemon/pilnfired.py"
@@ -50,9 +53,6 @@ NGINX_SITE_NAME="piln"
 NGINX_AVAILABLE="/etc/nginx/sites-available/${NGINX_SITE_NAME}"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${NGINX_SITE_NAME}"
 WEB_ROOT="/var/www/piln"   # nginx will NOT need access to /home/$APP_USER
-
-# hardware
-THERMO_TYPE="S"            # S, K, etc.
 
 # Optional override (usually leave empty to auto-detect from OS)
 # PILN_TIMEZONE_OVERRIDE="UTC"
