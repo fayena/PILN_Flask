@@ -32,6 +32,13 @@ try:
     LOCAL_TZ = ZoneInfo(TZ_NAME)
 except Exception:
     LOCAL_TZ = ZoneInfo("UTC")
+def now_local() -> datetime:
+    """Timezone-aware local time (America/Chicago)."""
+    return datetime.now(LOCAL_TZ)
+
+def now_str() -> str:
+    """Formatted timestamp for DB/logs in local tz."""
+    return now_local().strftime("%Y-%m-%d %H:%M:%S")
 
 THERMOCOUPLE = os.environ.get("THERMOCOUPLE", "S")
 # -------------------
