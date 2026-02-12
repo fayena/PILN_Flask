@@ -85,7 +85,7 @@ fi
 sudo apt update
 sudo apt -y upgrade
 sudo apt -y install \
-  git sqlite3 ufw nginx rsync \
+  git sqlite3 ufw nginx rsync libopenblas-dev\
   python3 python3-venv python3-pip \
   python3-jinja2 python3-psutil
 
