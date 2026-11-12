@@ -3,19 +3,45 @@ import board
 import busio
 import digitalio
 import adafruit_max31856
-     
-# create a spi object
-spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
-     
-# allocate a CS pin and set the direction
-cs = digitalio.DigitalInOut(board.D5)
-cs.direction = digitalio.Direction.OUTPUT
-     
-# create a thermocouple object with the above
-thermocouple = adafruit_max31856.MAX31856(spi, cs)
-     
-# print the temperature!
-while 1:
-    print(thermocouple.fault)
-    print(thermocouple.temperature)
-    time.sleep(1)	 	
+
+spi = None
+cs = None
+
+try:
+    # Initialize SPI
+    spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
+
+    # GPIO 0 is the MAX31856 chip-select pin.
+    # GPIO 5 is reserved for the kiln SSR!
+    cs = digitalio.DigitalInOut(board.D0)
+    cs.direction = digitalio.Direction.OUTPUT
+    cs.value = True  # CS inactive
+
+    thermocouple = adafruit_max31856.MAX31856(spi, cs)
+
+    print("MAX31856 fault monitoring started. Press Ctrl+C to exit.")
+
+    while True:
+        print(thermocouple.fault)
+        time.sleep(1)
+
+except KeyboardInterrupt:
+    print("\nCtrl+C detected. Stopping.")
+
+except Exception as e:
+    print(f"\nError: {e}")
+    raise
+
+finally:
+    print("Cleaning up GPIO/SPI resources...")
+
+    if cs is not None:
+        try:
+            cs.value = True  # Deselect MAX31856
+        finally:
+            cs.deinit()
+
+    if spi is not None:
+        spi.deinit()
+
+    print("Cleanup complete.")

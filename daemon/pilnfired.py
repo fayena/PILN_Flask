@@ -40,6 +40,14 @@ def now_str() -> str:
     """Formatted timestamp for DB/logs in local tz."""
     return now_local().strftime("%Y-%m-%d %H:%M:%S")
 
+def now_local() -> datetime:
+    """Timezone-aware local time (America/Chicago)."""
+    return datetime.now(LOCAL_TZ)
+
+def now_str() -> str:
+    """Formatted timestamp for DB/logs in local tz."""
+    return now_local().strftime("%Y-%m-%d %H:%M:%S")
+
 THERMOCOUPLE = os.environ.get("THERMOCOUPLE", "S")
 # -------------------
 # Constants / Options
@@ -132,13 +140,6 @@ class KilnHardware:
     def write_output_percent(self, pct: float):
         self.heat_on() if pct >= 50.0 else self.heat_off()
 
-    def pause_for_sample(self, quiet_ms: int = SAMPLE_QUIET_MS):
-        prev = self.last_cmd_on
-        self.heat_off()
-        time.sleep(quiet_ms / 1000.0)
-        if prev:
-            self.heat_on()
-
     def cleanup(self):
         try:
             self.heat_off()
@@ -197,34 +198,39 @@ class ThermocoupleReader:
         return t
 
     def _read_avg(self) -> Tuple[float, float]:
+        # Capture the commanded heater state before entering the quiet interval.
+        previously_on = self.hardware.last_cmd_on
+        self.hardware.heat_off()
+        # MAX31856 temperature property initiates its own conversion; keep
+        # outputs off until every sample has finished converting and reading.
         try:
-            self.hardware.pause_for_sample(SAMPLE_QUIET_MS)
+            time.sleep(SAMPLE_QUIET_MS / 1000.0)
+            temps, refs = [], []
+            for _ in range(self.samples_per_read):
+                t = self._read_once()
+                if self._valid(t):
+                    temps.append(t)
+                    try:
+                        refs.append(float(self.tc.reference_temperature))
+                    except Exception as e:
+                        L.debug("Cold-junction temperature read failed: %s", e)
+                else:
+                    L.warning("Invalid thermocouple sample: %r", t)
+                time.sleep(self.sample_delay)
+
+            if not temps:
+                raise RuntimeError("No valid samples in averaging window")
+
+            avg_t = sum(temps) / len(temps)
+            avg_ref = (sum(refs) / len(refs)) if refs else 0.0
         except Exception:
-            prev = getattr(self.hardware, "last_cmd_on", False)
-            try:
-                self.hardware.heat_off()
-                time.sleep(SAMPLE_QUIET_MS / 1000.0)
-            finally:
-                if prev:
-                    self.hardware.heat_on()
-
-        temps, refs = [], []
-        for _ in range(self.samples_per_read):
-            t = self._read_once()
-            if self._valid(t):
-                temps.append(t)
-                try:
-                    refs.append(float(self.tc.reference_temperature))
-                except Exception:
-                    pass
-            time.sleep(self.sample_delay)
-
-        if not temps:
-            raise RuntimeError("No valid samples in averaging window")
-
-        avg_t = sum(temps) / len(temps)
-        avg_ref = (sum(refs) / len(refs)) if refs else 0.0
-        return avg_t, avg_ref
+            # Do NOT restore heater power if a sample or GPIO read fails.
+            self.hardware.heat_off()
+            raise
+        else:
+            if previously_on:
+                self.hardware.heat_on()
+            return avg_t, avg_ref
 
     def read_temperature(self) -> Tuple[float, float]:
         soft_delay   = 0.01
@@ -559,11 +565,27 @@ class KilnController:
     def fire_segment(self, run_id: int, seg: int, target_tmp: float, rate: float, hold_min: int, window: int, kp: float, ki: float, kd: float):
         L.info(f"Entering segment RunID={run_id} Seg={seg} Target={target_tmp} Rate={rate} HoldMin={hold_min} Window={window}")
         if rate < 0:
-            kp = kp * 1.5
-            ki = ki * 0.5
-            kd = kd * 2.0
-            L.info(f"Cooling segment: Adjusted PID Kp={kp:.2f}, Ki={ki:.2f}, Kd={kd:.2f}")
-        self.pid = PIDController(kp, ki, kd, i_min=0.0, i_max=100.0)
+            self.pid.kp = kp * 1.5
+            self.pid.ki = ki * 0.5
+            self.pid.kd = kd * 2.0
+
+            L.info(
+                f"Cooling segment: Adjusted PID "
+                f"Kp={self.pid.kp:.2f}, "
+                f"Ki={self.pid.ki:.2f}, "
+                f"Kd={self.pid.kd:.2f}"
+            )
+        else:
+            self.pid.kp = kp
+            self.pid.ki = ki
+            self.pid.kd = kd
+
+        L.info(
+            f"Segment PID: Kp={self.pid.kp:.2f}, "
+            f"Ki={self.pid.ki:.2f}, "
+            f"Kd={self.pid.kd:.2f}, "
+            f"Integral={self.pid._i_term:.2f}"
+        )
         if DEBUG_SIM and seg == 1 and not self._sim_booted:
             self.sim_temp = 20.0
             self._sim_booted = True
@@ -718,13 +740,10 @@ class KilnController:
         L.info("Polling for 'Running' firing profiles...")
         while True:
             try:
+                self.hardware.heat_off()
+                L.debug("Relays off in idle mode")
                 read_tmp, int_tmp = self.read_temp()
                 L.debug(f"Thermocouple read in idle: temp={read_tmp:.2f}, int_tmp={int_tmp:.2f}, uptime={os.popen('uptime -p').read()}")
-                try:
-                    self.hardware.heat_off()
-                    L.debug("Relays off in idle mode")
-                except Exception as e:
-                    L.error(f"Idle relay off failed: {e}")
             except ThermocoupleError:
                 read_tmp, int_tmp = float('nan'), float('nan')
                 L.warning("Thermocouple read failed in idle")
@@ -750,6 +769,14 @@ class KilnController:
             ki = float(data[0]['i_param']) if data[0]['i_param'] is not None else 0.0
             kd = float(data[0]['d_param']) if data[0]['d_param'] is not None else 0.0
             kp, ki, kd = _fallback_pid(kp, ki, kd)
+
+            # Initialize PID once for the entire firing.
+            # Preserve its state between segments.
+            self.pid = PIDController(
+                kp, ki, kd,
+                i_min=0.0,
+                i_max=100.0
+            )
             configure_run_logger(run_id)
             L.info(f"=== Run start ===, uptime={os.popen('uptime -p').read()}")
             if DEBUG_SIM:
@@ -782,7 +809,11 @@ class KilnController:
                     time.sleep(cycle_on_sec)
                     self.hardware.heat_off()
                     L.info(f"Applied last PID output {last_pid_output:.2f} during transition to segment {seg}")
-                state = self.fire_segment(run_id, seg, target, rate, hold_min, window, kp, ki, kd)
+                try:
+                    state = self.fire_segment(run_id, seg, target, rate, hold_min, window, kp, ki, kd)
+                finally:
+                    # Includes Stopped/Error and unexpected exceptions.
+                    self.hardware.heat_off()
                 run_state_final = state
                 try:
                     self.set_segment_end(run_id, seg)
